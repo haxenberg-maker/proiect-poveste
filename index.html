@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<title>Diagram Editor</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f0f0f;
+    font-family: 'Syne', sans-serif;
+    color: #e8e8e8;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 12px 20px;
+    background: #161616;
+    border-bottom: 1px solid #2a2a2a;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    z-index: 100;
+  }
+  header h1 { font-size: 13px; letter-spacing: 0.15em; text-transform: uppercase; color: #888; }
+  .hint { font-size: 11px; color: #444; }
+  .hint span { color: #aaa; }
+
+  #save-status {
+    margin-left: auto;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.3s;
+  }
+  #save-status .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #444;
+    transition: background 0.3s;
+  }
+  #save-status.saving { color: #f5a623; }
+  #save-status.saving .dot { background: #f5a623; animation: pulse 0.8s infinite; }
+  #save-status.saved  { color: #4caf7d; }
+  #save-status.saved  .dot { background: #4caf7d; }
+  #save-status.error  { color: #e05555; }
+  #save-status.error  .dot { background: #e05555; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  #canvas {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    cursor: default;
+  }
+  svg#wires {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .wire {
+    fill: none;
+    stroke: #3a7bd5;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    pointer-events: visibleStroke;
+    cursor: pointer;
+    transition: stroke 0.15s;
+    filter: drop-shadow(0 0 4px rgba(58,123,213,0.4));
+  }
+  .wire:hover { stroke: #6fa3f5; }
+  .wire.selected { stroke: #f5a623; filter: drop-shadow(0 0 6px rgba(245,166,35,0.6)); }
+  .wire-handle {
+    fill: #3a7bd5;
+    stroke: #0f0f0f;
+    stroke-width: 2;
+    cursor: grab;
+    pointer-events: all;
+    transition: fill 0.15s;
+    filter: drop-shadow(0 0 3px rgba(58,123,213,0.7));
+  }
+  .wire-handle:hover { fill: #6fa3f5; }
+  .wire-handle.selected { fill: #f5a623; filter: drop-shadow(0 0 5px rgba(245,166,35,0.8)); }
+  .wire-del-bg {
+    fill: #1e1010; stroke: #c04040; stroke-width: 1.5;
+    cursor: pointer; pointer-events: all;
+    opacity: 0; transition: opacity 0.15s;
+  }
+  .wire-del-txt {
+    fill: #e05555; font-size: 11px; font-family: sans-serif;
+    font-weight: bold; cursor: pointer; pointer-events: all;
+    opacity: 0; user-select: none;
+    text-anchor: middle; dominant-baseline: central;
+  }
+  .wire-group.selected .wire-del-bg,
+  .wire-group.selected .wire-del-txt { opacity: 1; }
+  .node {
+    position: absolute;
+    background: #1a1a1a;
+    border: 1.5px solid #2e2e2e;
+    border-radius: 14px;
+    min-width: 150px;
+    min-height: 80px;
+    
+   
+    resize: both; 
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    
+    cursor: grab;
+    user-select: none;
+    z-index: 10;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+	padding-bottom: 5px;
+	padding-right: 5px;
+	}
+  .node:hover { border-color: #444; }
+  .node:hover .node-delete,
+  .node.selected .node-delete { opacity: 1; }
+  .node.dragging { cursor: grabbing; z-index: 20; }
+  .node.selected { border-color: #3a7bd5; box-shadow: 0 0 0 1px rgba(58,123,213,0.25), 0 4px 24px rgba(0,0,0,0.5); }
+  .node-header {
+    padding: 8px 36px 7px 12px;
+    border-bottom: 1px solid #222;
+    display: flex;
+    align-items: center;
+    position: relative;
+    min-height: 34px;
+  }
+  .node-title {
+    font-size: 10px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: #666;
+    outline: none;
+    flex: 1;
+    cursor: text;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+    overflow: hidden;
+    min-width: 0;
+  }
+  .node-title:focus { color: #bbb; border-bottom-color: #3a7bd5; overflow: visible; }
+  .node-title:empty::before { content: 'Titlu...'; color: #333; pointer-events: none; }
+  .node-delete {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #2a1818; border: 1px solid #4a2020; color: #c04040;
+    font-size: 10px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; opacity: 0; transition: opacity 0.15s, background 0.15s;
+    z-index: 20;
+  }
+  .node-delete:hover { background: #c04040; color: #fff; border-color: #c04040; }
+  .node-body {
+    flex: 1; 
+    padding: 10px;
+    font-size: 13px;
+    color: #ccc;
+    outline: none;
+    cursor: text;
+    
+    overflow-y: auto; 
+    word-break: break-word;
+  }
+  .node-body:focus { color: #fff; }
+  .node-body:empty::before { content: attr(data-placeholder); color: #2e2e2e; pointer-events: none; }
+  .port {
+    position: absolute; width: 12px; height: 12px; border-radius: 50%;
+    background: #252525; border: 2px solid #3e3e3e;
+    cursor: crosshair; z-index: 15;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .port:hover { background: #3a7bd5; border-color: #6fa3f5; }
+  .port.active { background: #3a7bd5; border-color: #6fa3f5; }
+  .port-right  { right: -6px;  top: 50%; transform: translateY(-50%); }
+  .port-left   { left: -6px;   top: 50%; transform: translateY(-50%); }
+  .port-bottom { bottom: -6px; left: 50%; transform: translateX(-50%); }
+  .port-top    { top: -6px;    left: 50%; transform: translateX(-50%); }
+  #toolbar {
+    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #161616; border: 1px solid #2a2a2a;
+    border-radius: 40px; padding: 8px 16px;
+    display: flex; gap: 8px; z-index: 100;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  }
+  .tool-btn {
+    background: none; border: none; color: #666;
+    font-size: 11px; font-family: 'Syne', sans-serif;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 6px 14px; border-radius: 20px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tool-btn:hover { color: #ccc; background: #222; }
+  .tool-btn.danger:hover { color: #e05555; background: rgba(224,85,85,0.1); }
+  #temp-wire {
+    fill: none; stroke: #3a7bd5; stroke-width: 2;
+    stroke-dasharray: 6 4; pointer-events: none; opacity: 0.7;
+  }
+  #loading-overlay {
+    position: absolute; inset: 0;
+    background: #0f0f0f;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 16px; z-index: 999;
+    transition: opacity 0.4s;
+  }
+  #loading-overlay .logo { font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase; color: #444; }
+  #loading-overlay .spinner {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 2px solid #222; border-top-color: #3a7bd5;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="login-screen" style="position:fixed; inset:0; background:#0f0f0f; z-index:1000; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:15px;">
+  <h2 style="font-size:14px; letter-spacing:0.2em; color:#888; text-transform:uppercase;">Acces Privat</h2>
+  <input type="email" id="login-email" placeholder="Email" style="background:#161616; border:1px solid #2a2a2a; color:#fff; padding:10px; border-radius:8px; width:250px; outline:none; font-family:inherit;">
+  <input type="password" id="login-pass" placeholder="Parolă" style="background:#161616; border:1px solid #2a2a2a; color:#fff; padding:10px; border-radius:8px; width:250px; outline:none; font-family:inherit;">
+  <button onclick="handleLogin()" style="background:#3a7bd5; color:#fff; border:none; padding:10px 25px; border-radius:20px; cursor:pointer; font-family:inherit; font-weight:bold; transition:0.2s;">AUTENTIFICARE</button>
+  <div id="login-error" style="color:#e05555; font-size:11px; margin-top:5px;"></div>
+</div>
+<header>
+  <h1>Wire Diagram</h1>
+  <div class="hint">
+    <span>Click titlu</span> → editează &nbsp;·&nbsp;
+    <span>Port</span> → conectează &nbsp;·&nbsp;
+    <span>Bulina</span> → mișcă firul &nbsp;·&nbsp;
+    <span>✕</span> → șterge
+  </div>
+  <div id="save-status">
+    <div class="dot"></div>
+    <span id="save-label">—</span>
+  </div>
+</header>
+
+<div id="canvas">
+  <div id="loading-overlay">
+    <div class="logo">Wire Diagram</div>
+    <div class="spinner"></div>
+  </div>
+  <svg id="wires">
+    <defs>
+      <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#3a7bd5"/>
+      </marker>
+    </defs>
+    <path id="temp-wire" d=""/>
+  </svg>
+</div>
+
+<div id="toolbar">
+  <button class="tool-btn" onclick="addNode()">+ Nod</button>
+  <button class="tool-btn danger" onclick="deleteSelected()">✕ Șterge</button>
+  <button class="tool-btn" onclick="clearAll()">Resetează</button>
+</div>
+
+<script>
+// ── Firebase init ──────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyAH5dMgxUM8t7hj45pL4ABHc9NacQayc-A",
+  authDomain: "hax-berg-2026.firebaseapp.com",
+  projectId: "hax-berg-2026",
+  storageBucket: "hax-berg-2026.firebasestorage.app",
+  messagingSenderId: "497627197822",
+  appId: "1:497627197822:web:9198db6c127511788c832f",
+  databaseURL: "https://hax-berg-2026-default-rtdb.europe-west1.firebasedatabase.app"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.database();
+
+let DIAGRAM_REF;
+// Funcție de logare
+async function handleLogin() {
+	alert("Buton apăsat!")
+  const email = document.getElementById('login-email').value;
+  const pass = document.getElementById('login-pass').value;
+  const errorDiv = document.getElementById('login-error');
+  
+  try {
+    errorDiv.textContent = "Se verifică...";
+    await auth.signInWithEmailAndPassword(email, pass);
+    
+    // Succes: Setăm referința și ascundem ecranul de login
+    DIAGRAM_REF = db.ref('diagram/v1');
+    document.getElementById('login-screen').style.display = 'none';
+    
+    // Abia acum pornim încărcarea datelor
+    loadDiagram();
+    console.log("Logat cu succes!");
+  } catch (error) {
+    errorDiv.textContent = "Date incorecte sau acces refuzat.";
+    console.error("Auth error:", error.message);
+  }
+}
+// Permite login cu tasta Enter
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Enter' && document.getElementById('login-screen').style.display !== 'none') handleLogin();
+});
+
+// ── State ──────────────────────────────────────────────────────
+const canvas   = document.getElementById('canvas');
+const svgEl    = document.getElementById('wires');
+const tempWire = document.getElementById('temp-wire');
+const overlay  = document.getElementById('loading-overlay');
+
+let nodes = [], connections = [];
+let selectedId = null, nodeCount = 0;
+let draggingNode = null, dragOffset = {x:0,y:0};
+let drawingWire = null, draggingHandle = null;
+let saveTimeout = null;
+let isLoading = true; // prevent save during initial load
+
+// ── Save status UI ─────────────────────────────────────────────
+function setStatus(state, text) {
+  const el = document.getElementById('save-status');
+  const lb = document.getElementById('save-label');
+  el.className = state;
+  lb.textContent = text;
+}
+
+// ── Serialize / Deserialize ────────────────────────────────────
+function serializeState() {
+  return {
+    nodes: nodes.map(n => {
+      const el = document.getElementById(n.id);
+      return {
+        id: n.id,
+        x: parseInt(el.style.left),
+        y: parseInt(el.style.top),
+        w: el.offsetWidth,  // <--- SALVEAZĂ LĂȚIMEA
+        h: el.offsetHeight, // <--- SALVEAZĂ ÎNĂLȚIMEA
+        title: el.querySelector('.node-title').textContent,
+        body:  el.querySelector('.node-body').textContent,
+        month: el.querySelector('.node-month').value,
+        year:  el.querySelector('.node-year').value
+      };
+    }),
+    connections: connections.map(c => ({...c})),
+    nodeCount
+  };
+}
+
+function scheduleAutoSave() {
+  if (isLoading) return;
+  setStatus('saving', 'Se salvează...');
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(async () => {
+    try {
+      await DIAGRAM_REF.set(serializeState());
+      setStatus('saved', 'Salvat ✓');
+    } catch(e) {
+      setStatus('error', 'Eroare salvare');
+      console.error(e);
+    }
+  }, 800);
+}
+
+// ── Load from Firebase ─────────────────────────────────────────
+async function loadDiagram() {
+  try {
+    const snap = await DIAGRAM_REF.get();
+    if (snap.exists()) {
+      const data = snap.val();
+      nodeCount = data.nodeCount || 0;
+
+      /// În interiorul loadDiagram, caută bucla forEach pentru noduri:
+		(data.nodes || []).forEach(n => {
+		  // Trimitem și parametrii month și year
+		  createNode(n.x, n.y, n.title, n.body, n.id, n.month, n.year); 
+		});
+
+      // Restore connections
+      connections = (data.connections || []).map(c => ({...c, midX: c.midX||undefined, midY: c.midY||undefined}));
+
+      renderWires();
+      setStatus('saved', 'Salvat ✓');
+    } else {
+      // First time — init default diagram
+      initDefaultDiagram();
+    }
+  } catch(e) {
+    setStatus('error', 'Eroare încărcare');
+    console.error(e);
+    initDefaultDiagram();
+  } finally {
+    isLoading = false;
+    overlay.style.opacity = '0';
+    setTimeout(() => overlay.style.display = 'none', 400);
+  }
+}
+
+
+// ── Rendering ──────────────────────────────────────────────────
+function getPortPos(nodeEl, side) {
+  const r  = nodeEl.getBoundingClientRect();
+  const cr = canvas.getBoundingClientRect();
+  const cx = r.left - cr.left + r.width/2;
+  const cy = r.top  - cr.top  + r.height/2;
+  if (side==='right')  return {x: r.right  - cr.left, y: cy};
+  if (side==='left')   return {x: r.left   - cr.left, y: cy};
+  if (side==='bottom') return {x: cx, y: r.bottom - cr.top};
+  if (side==='top')    return {x: cx, y: r.top    - cr.top};
+  return {x:cx,y:cy};
+}
+
+function qPath(x1,y1,x2,y2,mx,my) {
+  if (mx!==undefined) return `M${x1},${y1} Q${mx},${my} ${x2},${y2}`;
+  const dx = Math.abs(x2-x1)*0.5;
+  return `M${x1},${y1} C${x1+dx},${y1} ${x2-dx},${y2} ${x2},${y2}`;
+}
+
+function renderWires() {
+  svgEl.querySelectorAll('.wire-group').forEach(e=>e.remove());
+  connections.forEach(conn => {
+    const fe = document.getElementById(conn.from);
+    const te = document.getElementById(conn.to);
+    if (!fe||!te) return;
+    const p1 = getPortPos(fe, conn.fromPort||'right');
+    const p2 = getPortPos(te, conn.toPort||'left');
+    if (conn.midX===undefined) { conn.midX=(p1.x+p2.x)/2; conn.midY=(p1.y+p2.y)/2; }
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.classList.add('wire-group');
+    if (selectedId===conn.id) g.classList.add('selected');
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', qPath(p1.x,p1.y,p2.x,p2.y,conn.midX,conn.midY));
+    path.setAttribute('class','wire');
+    if (selectedId===conn.id) path.classList.add('selected');
+    path.setAttribute('marker-end','url(#arrow)');
+    path.addEventListener('click',(e)=>{e.stopPropagation();selectedId=conn.id;renderWires();});
+
+    const handle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    handle.setAttribute('cx',conn.midX); handle.setAttribute('cy',conn.midY);
+    handle.setAttribute('r', selectedId===conn.id ? 7 : 5);
+    handle.setAttribute('class','wire-handle');
+    if (selectedId===conn.id) handle.classList.add('selected');
+    handle.addEventListener('mousedown',(e)=>{
+      e.stopPropagation(); selectedId=conn.id;
+      draggingHandle={connId:conn.id}; renderWires();
+    });
+
+    const dbx=conn.midX+18, dby=conn.midY-18;
+    const dbg=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    dbg.setAttribute('cx',dbx); dbg.setAttribute('cy',dby); dbg.setAttribute('r',9);
+    dbg.setAttribute('class','wire-del-bg');
+    dbg.addEventListener('click',(e)=>{e.stopPropagation();deleteConn(conn.id);});
+
+    const dtxt=document.createElementNS('http://www.w3.org/2000/svg','text');
+    dtxt.setAttribute('x',dbx); dtxt.setAttribute('y',dby);
+    dtxt.setAttribute('class','wire-del-txt'); dtxt.textContent='✕';
+    dtxt.addEventListener('click',(e)=>{e.stopPropagation();deleteConn(conn.id);});
+
+    g.appendChild(path); g.appendChild(handle); g.appendChild(dbg); g.appendChild(dtxt);
+    svgEl.appendChild(g);
+  });
+}
+
+// ── Node creation ──────────────────────────────────────────────
+function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h) {
+  if (!forcedId) nodeCount++;
+  const id = forcedId || ('node-' + nodeCount);
+
+  const el = document.createElement('div');
+  el.className = 'node'; el.id = id;
+  el.style.left = x + 'px'; el.style.top = y + 'px';
+  if (w) el.style.width = w + 'px';
+  if (h) el.style.height = h + 'px';
+  const observer = new ResizeObserver(() => {
+    renderWires(); 
+  });
+  observer.observe(el);
+  el.addEventListener('mousedown', (e) => {
+    // 1. Verificăm dacă am dat click pe elemente de text sau butoane
+    if(['port','node-body','node-title','node-delete','node-month','node-year'].some(c=>e.target.classList.contains(c))) return;
+
+    // 2. DETECTOR DE REZISE: Dacă click-ul e în colțul dreapta-jos (ultimii 15 pixeli)
+    const rect = el.getBoundingClientRect();
+    const isResizeZone = (e.clientX > rect.right - 15 && e.clientY > rect.bottom - 15);
+    
+    if (isResizeZone) {
+        // Lăsăm browserul să facă resize, nu pornim Drag-ul
+        return; 
+    }
+
+    // 3. Logica de DRAG (mutare) existentă
+    draggingNode = el;
+    dragOffset.x = e.clientX - el.offsetLeft;
+    dragOffset.y = e.clientY - el.offsetTop;
+    
+    el.classList.add('dragging');
+    selectedId = null;
+    document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
+    el.classList.add('selected');
+    renderWires();
+    e.preventDefault();
+	});
+  el.addEventListener('mouseup', () => {
+    scheduleAutoSave();
+  });
+  const header = document.createElement('div');
+  header.className = 'node-header';
+
+  const titleEl = document.createElement('div');
+  titleEl.className = 'node-title'; titleEl.contentEditable = 'true'; titleEl.spellcheck = false;
+  titleEl.textContent = title || ('Block ' + (forcedId ? forcedId.split('-')[1] : nodeCount));
+  titleEl.addEventListener('mousedown', e => e.stopPropagation());
+  titleEl.addEventListener('blur', scheduleAutoSave);
+  header.appendChild(titleEl);
+
+  const delBtn = document.createElement('div');
+  delBtn.className = 'node-delete'; delBtn.innerHTML = '✕';
+  delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteNode(id); });
+  header.appendChild(delBtn);
+
+  // --- START SELECTOR LUNĂ/AN ---
+  const dateContainer = document.createElement('div');
+  dateContainer.style = "display:flex; gap:6px; padding: 0 12px 10px; margin-top:-2px;";
+
+  const months = ["Ian", "Feb", "Mar", "Apr", "Mai", "Iun", "Iul", "Aug", "Sep", "Oct", "Noi", "Dec"];
+  const selMonth = document.createElement('select');
+  selMonth.className = 'node-month';
+  selMonth.style = "background:#222; border:1px solid #333; color:#777; font-size:10px; border-radius:4px; outline:none; cursor:pointer; padding:2px 4px; font-family:inherit;";
+  months.forEach((m, i) => {
+    const opt = document.createElement('option');
+    opt.value = i; opt.textContent = m;
+    if(savedMonth == i) opt.selected = true;
+    selMonth.appendChild(opt);
+  });
+
+  const selYear = document.createElement('select');
+  selYear.className = 'node-year';
+  selYear.style = selMonth.style.cssText;
+  for(let y = 2024; y <= 2030; y++) {
+    const opt = document.createElement('option');
+    opt.value = y; opt.textContent = y;
+    if(savedYear == y) opt.selected = true;
+    selYear.appendChild(opt);
+  }
+
+  selMonth.onchange = scheduleAutoSave;
+  selYear.onchange = scheduleAutoSave;
+  
+  // Oprim drag-ul când umblăm la selectoare
+  selMonth.onmousedown = e => e.stopPropagation();
+  selYear.onmousedown = e => e.stopPropagation();
+
+  dateContainer.appendChild(selMonth);
+  dateContainer.appendChild(selYear);
+  // --- END SELECTOR ---
+
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'node-body'; bodyEl.contentEditable = 'true'; bodyEl.spellcheck = false;
+  bodyEl.setAttribute('data-placeholder', 'Descriere...');
+  bodyEl.textContent = body || '';
+  bodyEl.addEventListener('mousedown', e => e.stopPropagation());
+  bodyEl.addEventListener('blur', scheduleAutoSave);
+
+  // Adăugăm elementele în ordine
+  el.appendChild(header);
+  el.appendChild(dateContainer);
+  el.appendChild(bodyEl);
+
+  // Porturile (păstrăm logica ta existentă)
+  [['port port-right','right'],['port port-left','left'],['port port-bottom','bottom'],['port port-top','top']]
+    .forEach(([cls,side])=>{
+      const port=document.createElement('div');
+      port.className=cls; port.dataset.side=side;
+      port.addEventListener('mousedown',(e)=>{
+        e.stopPropagation();
+        const pos=getPortPos(el,side);
+        drawingWire={fromNodeId:id,fromPort:side,startX:pos.x,startY:pos.y};
+        port.classList.add('active');
+      });
+      el.appendChild(port);
+    });
+
+  el.addEventListener('mousedown',(e)=>{
+    if(['port','node-body','node-title','node-delete','node-month','node-year'].some(c=>e.target.classList.contains(c))) return;
+    draggingNode=el;
+    dragOffset.x=e.clientX-el.offsetLeft; dragOffset.y=e.clientY-el.offsetTop;
+    el.classList.add('dragging');
+    selectedId=null;
+    document.querySelectorAll('.node.selected').forEach(n=>n.classList.remove('selected'));
+    el.classList.add('selected');
+    renderWires(); e.preventDefault();
+  });
+
+  canvas.appendChild(el);
+  nodes.push({id,el});
+  return id;
+}
+
+function addNode() {
+  createNode(80+Math.random()*320, 80+Math.random()*220,'','');
+  scheduleAutoSave();
+}
+
+function deleteConn(id) {
+  connections=connections.filter(c=>c.id!==id);
+  if(selectedId===id) selectedId=null;
+  renderWires(); scheduleAutoSave();
+}
+
+function deleteNode(nodeId) {
+  const el=document.getElementById(nodeId);
+  if(el) el.remove();
+  nodes=nodes.filter(n=>n.id!==nodeId);
+  connections=connections.filter(c=>c.from!==nodeId&&c.to!==nodeId);
+  if(selectedId===nodeId) selectedId=null;
+  renderWires(); scheduleAutoSave();
+}
+
+function deleteSelected() {
+  if(!selectedId) return;
+  if(connections.find(c=>c.id===selectedId)){deleteConn(selectedId);return;}
+  if(nodes.find(n=>n.id===selectedId)) deleteNode(selectedId);
+}
+
+async function clearAll() {
+  nodes.forEach(n=>{const e=document.getElementById(n.id);if(e)e.remove();});
+  nodes=[];connections=[];selectedId=null;nodeCount=0;
+  renderWires();
+  await DIAGRAM_REF.remove();
+  initDefaultDiagram();
+}
+
+// ── Mouse events ───────────────────────────────────────────────
+document.addEventListener('mousemove',(e)=>{
+  const cr=canvas.getBoundingClientRect();
+  const mx=e.clientX-cr.left, my=e.clientY-cr.top;
+  if(draggingNode){
+    draggingNode.style.left=(e.clientX-dragOffset.x)+'px';
+    draggingNode.style.top=(e.clientY-dragOffset.y)+'px';
+    renderWires();
+  }
+  if(drawingWire) tempWire.setAttribute('d',qPath(drawingWire.startX,drawingWire.startY,mx,my));
+  if(draggingHandle){
+    const conn=connections.find(c=>c.id===draggingHandle.connId);
+    if(conn){conn.midX=mx;conn.midY=my;renderWires();}
+  }
+});
+
+document.addEventListener('mouseup',(e)=>{
+  if(draggingNode){draggingNode.classList.remove('dragging');draggingNode=null;renderWires();scheduleAutoSave();}
+  if(draggingHandle){draggingHandle=null;scheduleAutoSave();}
+  if(drawingWire){
+    const t=e.target;
+    if(t.classList.contains('port')){
+      const toNode=t.closest('.node');
+      if(toNode&&toNode.id!==drawingWire.fromNodeId){
+        connections.push({id:'c'+Date.now(),from:drawingWire.fromNodeId,fromPort:drawingWire.fromPort,
+          to:toNode.id,toPort:t.dataset.side,midX:undefined,midY:undefined});
+        renderWires(); scheduleAutoSave();
+      }
+    }
+    tempWire.setAttribute('d','');
+    document.querySelectorAll('.port.active').forEach(p=>p.classList.remove('active'));
+    drawingWire=null;
+  }
+});
+
+document.addEventListener('keydown',(e)=>{
+  if((e.key==='Delete'||e.key==='Backspace')&&selectedId){
+    const a=document.activeElement;
+    if(a&&(a.classList.contains('node-body')||a.classList.contains('node-title'))) return;
+    deleteSelected();
+  }
+});
+
+canvas.addEventListener('click',(e)=>{
+  if(e.target===canvas||e.target===svgEl){
+    selectedId=null;
+    document.querySelectorAll('.node.selected').forEach(n=>n.classList.remove('selected'));
+    renderWires();
+  }
+});
+
+// ── Default diagram ────────────────────────────────────────────
+function initDefaultDiagram() {
+  const n1=createNode(60,130,'Start','');
+  const n2=createNode(290,60,'Procesare','');
+  const n3=createNode(290,255,'Validare','');
+  const n4=createNode(80,415,'Output','');
+  setTimeout(()=>{
+    connections.push({id:'c1',from:n1,fromPort:'right',to:n2,toPort:'left',midX:undefined,midY:undefined});
+    connections.push({id:'c2',from:n2,fromPort:'bottom',to:n3,toPort:'top',midX:undefined,midY:undefined});
+    connections.push({id:'c3',from:n3,fromPort:'bottom',to:n4,toPort:'right',midX:undefined,midY:undefined});
+    renderWires();
+    scheduleAutoSave();
+  },50);
+}
+
+// ── Boot ───────────────────────────────────────────────────────
+
+</script>
+</body>
+</html>
