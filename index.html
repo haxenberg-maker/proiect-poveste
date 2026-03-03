@@ -867,18 +867,13 @@ document.addEventListener('mouseup', (e) => {
   if (lassoDragging) {
     lassoDragging = false;
 
-    // Read coords BEFORE hiding
+    // Read lasso rect in canvas-relative screen coords BEFORE hiding
+    const cr = canvas.getBoundingClientRect();
     const lScreenX1 = parseFloat(lassoEl.style.left);
     const lScreenY1 = parseFloat(lassoEl.style.top);
-    const lScreenW  = parseFloat(lassoEl.style.width);
-    const lScreenH  = parseFloat(lassoEl.style.height);
+    const lScreenX2 = lScreenX1 + parseFloat(lassoEl.style.width);
+    const lScreenY2 = lScreenY1 + parseFloat(lassoEl.style.height);
     lassoEl.style.display = 'none';
-
-    // Convert from canvas-screen space → world space
-    const lx1 = (lScreenX1 - panX) / zoom;
-    const ly1 = (lScreenY1 - panY) / zoom;
-    const lx2 = lx1 + lScreenW / zoom;
-    const ly2 = ly1 + lScreenH / zoom;
 
     document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
     selectedIds.clear(); selectedId = null;
@@ -886,11 +881,14 @@ document.addEventListener('mouseup', (e) => {
     nodes.forEach(n => {
       const nel = document.getElementById(n.id);
       if (!nel) return;
-      const nx = parseInt(nel.style.left) || 0;
-      const ny = parseInt(nel.style.top)  || 0;
-      const nw = nel.offsetWidth;
-      const nh = nel.offsetHeight;
-      if (nx < lx2 && nx + nw > lx1 && ny < ly2 && ny + nh > ly1) {
+      // Get node position in canvas-relative screen coords
+      const nr = nel.getBoundingClientRect();
+      const nx1 = nr.left  - cr.left;
+      const ny1 = nr.top   - cr.top;
+      const nx2 = nr.right - cr.left;
+      const ny2 = nr.bottom - cr.top;
+      // Check overlap
+      if (nx1 < lScreenX2 && nx2 > lScreenX1 && ny1 < lScreenY2 && ny2 > lScreenY1) {
         nel.classList.add('selected');
         selectedIds.add(n.id);
         selectedId = n.id;
