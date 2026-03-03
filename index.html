@@ -573,10 +573,9 @@
 <header>
   <h1>Wire Diagram</h1>
   <div class="hint">
-    <span>Click titlu</span> → editează &nbsp;·&nbsp;
-    <span>Port</span> → conectează &nbsp;·&nbsp;
-    <span>Bulina</span> → mișcă firul &nbsp;·&nbsp;
-    <span>✕</span> → șterge
+    <span>Shift+Click</span> → selectare multiplă &nbsp;·&nbsp;
+    <span>Ctrl+Z/Y</span> → undo/redo &nbsp;·&nbsp;
+    <span>Ctrl+C/V</span> → copiază/lipește
   </div>
   <button class="tool-btn" id="undo-btn" onclick="undo()" style="border:1px solid #2a2a2a; border-radius:20px; padding:5px 14px;">↩ Undo</button>
   <div id="nav-wrap">
@@ -713,14 +712,16 @@ const world    = document.getElementById('world');
 
 let nodes = [], connections = [];
 let selectedId = null, nodeCount = 0;
+let selectedIds = new Set(); // multi-select
 let draggingNode = null, dragOffset = {x:0, y:0};
+let multiDragOffsets = []; // offsets for each node in multi-drag
 let drawingWire = null, draggingHandle = null;
 let saveTimeout = null;
 let isLoading = true;
 let panX = 0, panY = 0, zoom = 1;
 
 // ── Undo stack ────────────────────────────────────────────────
-let undoStack = [];
+let undoStack = [], redoStack = [];
 const UNDO_LIMIT = 50;
 let clipboardNode = null; // for Ctrl+C / Ctrl+V
 
@@ -729,21 +730,29 @@ function snapshotForUndo() {
   const state = serializeState();
   undoStack.push(JSON.stringify(state));
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  redoStack = []; // new action clears redo
+}
+
+function restoreSnapshot(data) {
+  nodes.forEach(n => { const e = document.getElementById(n.id); if (e) e.remove(); });
+  nodes = []; connections = []; nodeCount = 0;
+  nodeCount = data.nodeCount || 0;
+  (data.nodes || []).forEach(n => createNode(n.x, n.y, n.title, n.body, n.id, n.month, n.year, n.w, n.h, n.color, n.style));
+  connections = (data.connections || []).map(c => ({...c, midX: c.midX||undefined, midY: c.midY||undefined}));
+  renderWires();
+  scheduleAutoSave();
 }
 
 function undo() {
   if (undoStack.length === 0) return;
-  const raw = undoStack.pop();
-  const data = JSON.parse(raw);
-  // Clear current nodes
-  nodes.forEach(n => { const e = document.getElementById(n.id); if (e) e.remove(); });
-  nodes = []; connections = []; nodeCount = 0;
-  // Restore
-  nodeCount = data.nodeCount || 0;
-  (data.nodes || []).forEach(n => createNode(n.x, n.y, n.title, n.body, n.id, n.month, n.year, n.w, n.h));
-  connections = (data.connections || []).map(c => ({...c, midX: c.midX||undefined, midY: c.midY||undefined}));
-  renderWires();
-  scheduleAutoSave();
+  redoStack.push(JSON.stringify(serializeState()));
+  restoreSnapshot(JSON.parse(undoStack.pop()));
+}
+
+function redo() {
+  if (redoStack.length === 0) return;
+  undoStack.push(JSON.stringify(serializeState()));
+  restoreSnapshot(JSON.parse(redoStack.pop()));
 }
 
 function applyTransform() {
@@ -1116,18 +1125,57 @@ function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h, sa
 
   // ── Drag to move (skip resize corner, ports, editable areas) ──
   el.addEventListener('mousedown', (e) => {
-    const skipClasses = ['port','node-body','node-title','node-delete','node-month','node-year','node-color-btn'];
+    const skipClasses = ['port','node-body','node-title','node-delete','node-month','node-year','node-color-btn','node-edit-btn'];
     if (skipClasses.some(c => e.target.classList.contains(c))) return;
 
-    // Resize zone = bottom-right 16px
     const rect = el.getBoundingClientRect();
     if (e.clientX > rect.right - 16 && e.clientY > rect.bottom - 16) return;
 
+    if (e.shiftKey) {
+      // Shift+click: toggle in multi-select
+      if (selectedIds.has(id)) {
+        selectedIds.delete(id);
+        el.classList.remove('selected');
+      } else {
+        selectedIds.add(id);
+        el.classList.add('selected');
+        // also add previous selectedId if any
+        if (selectedId && !selectedIds.has(selectedId)) {
+          selectedIds.add(selectedId);
+          const prev = document.getElementById(selectedId);
+          if (prev) prev.classList.add('selected');
+        }
+        selectedId = id;
+      }
+      renderWires();
+      e.preventDefault();
+      return;
+    }
+
+    // Normal click — if node already in multi-select, drag all
+    if (selectedIds.size > 1 && selectedIds.has(id)) {
+      // Start multi-drag
+      multiDragOffsets = [];
+      selectedIds.forEach(nid => {
+        const nel = document.getElementById(nid);
+        if (nel) multiDragOffsets.push({ id: nid, ox: e.clientX - nel.offsetLeft, oy: e.clientY - nel.offsetTop });
+      });
+      draggingNode = el;
+      dragOffset.x = e.clientX - el.offsetLeft;
+      dragOffset.y = e.clientY - el.offsetTop;
+      el.classList.add('dragging');
+      e.preventDefault();
+      return;
+    }
+
+    // Single select
+    selectedIds.clear();
     draggingNode = el;
     dragOffset.x = e.clientX - el.offsetLeft;
     dragOffset.y = e.clientY - el.offsetTop;
     el.classList.add('dragging');
-    selectedId = null;
+    selectedId = id;
+    selectedIds.add(id);
     document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
     el.classList.add('selected');
     renderWires();
@@ -1163,6 +1211,17 @@ function deleteNode(nodeId) {
 }
 
 function deleteSelected() {
+  if (selectedIds.size > 1) {
+    snapshotForUndo();
+    selectedIds.forEach(nid => {
+      const el = document.getElementById(nid);
+      if (el) el.remove();
+      nodes = nodes.filter(n => n.id !== nid);
+      connections = connections.filter(c => c.from !== nid && c.to !== nid);
+    });
+    selectedIds.clear(); selectedId = null;
+    renderWires(); scheduleAutoSave(); return;
+  }
   if (!selectedId) return;
   if (connections.find(c => c.id === selectedId)) { deleteConn(selectedId); return; }
   if (nodes.find(n => n.id === selectedId)) deleteNode(selectedId);
@@ -1182,8 +1241,15 @@ document.addEventListener('mousemove', (e) => {
   const wr = world.getBoundingClientRect();
   const mx = (e.clientX - wr.left) / zoom, my = (e.clientY - wr.top) / zoom;
   if (draggingNode) {
-    draggingNode.style.left = (e.clientX - dragOffset.x) + 'px';
-    draggingNode.style.top  = (e.clientY - dragOffset.y) + 'px';
+    if (multiDragOffsets.length > 1) {
+      multiDragOffsets.forEach(o => {
+        const nel = document.getElementById(o.id);
+        if (nel) { nel.style.left = (e.clientX - o.ox) + 'px'; nel.style.top = (e.clientY - o.oy) + 'px'; }
+      });
+    } else {
+      draggingNode.style.left = (e.clientX - dragOffset.x) + 'px';
+      draggingNode.style.top  = (e.clientY - dragOffset.y) + 'px';
+    }
     renderWires();
   }
   if (drawingWire) tempWire.setAttribute('d', qPath(drawingWire.startX, drawingWire.startY, mx, my));
@@ -1194,7 +1260,7 @@ document.addEventListener('mousemove', (e) => {
 });
 
 document.addEventListener('mouseup', (e) => {
-  if (draggingNode) { draggingNode.classList.remove('dragging'); draggingNode = null; renderWires(); scheduleAutoSave(); }
+  if (draggingNode) { draggingNode.classList.remove('dragging'); draggingNode = null; multiDragOffsets = []; renderWires(); scheduleAutoSave(); }
   if (draggingHandle) { draggingHandle = null; scheduleAutoSave(); }
   if (drawingWire) {
     const t = e.target;
@@ -1214,8 +1280,12 @@ document.addEventListener('mouseup', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey)) {
+  if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
     e.preventDefault(); undo(); return;
+  }
+  if (((e.key === 'y' || e.key === 'Y') && (e.ctrlKey || e.metaKey)) ||
+      ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && e.shiftKey)) {
+    e.preventDefault(); redo(); return;
   }
   const active = document.activeElement;
   const inText = active && (active.classList.contains('node-body') || active.classList.contains('node-title'));
@@ -1266,6 +1336,8 @@ document.addEventListener('keydown', (e) => {
 canvas.addEventListener('click', (e) => {
   if (e.target === canvas || e.target === svgEl || e.target === world) {
     selectedId = null;
+    selectedIds.clear();
+    multiDragOffsets = [];
     document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
     renderWires();
   }
@@ -1315,6 +1387,10 @@ function openNodeEditPanel(nodeId, anchorEl) {
   const r = anchorEl.getBoundingClientRect();
   editPanel.style.left = Math.min(r.left, window.innerWidth - 250) + 'px';
   editPanel.style.top  = (r.bottom + 8) + 'px';
+  const multiCount = selectedIds.size;
+  document.querySelector('.nep-title').textContent = multiCount > 1
+    ? `✏ Editare ${multiCount} noduri`
+    : '✏ Editare nod';
   editPanel.classList.add('show');
 
   // Populate current values
@@ -1343,19 +1419,22 @@ document.getElementById('nep-close-btn').addEventListener('click', closeNodeEdit
 // Live updates
 function nepUpdate() {
   if (!editingNodeId) return;
-  const el = document.getElementById(editingNodeId);
-  if (!el) return;
-  const s = getNodeStyle(el);
-  s.borderColor  = document.getElementById('nep-border-color').value;
-  s.bgColor      = document.getElementById('nep-bg-color').value;
-  s.titleColor   = document.getElementById('nep-title-color').value;
-  s.textColor    = document.getElementById('nep-text-color').value;
-  s.borderWidth  = parseFloat(document.getElementById('nep-border-width').value);
-  s.borderRadius = parseInt(document.getElementById('nep-radius').value);
-  s.titleStyle   = document.getElementById('nep-title-style').value;
-  document.getElementById('nep-border-width-val').textContent = s.borderWidth;
-  document.getElementById('nep-radius-val').textContent = s.borderRadius;
-  applyNodeStyle(el, s);
+  const targets = selectedIds.size > 1
+    ? [...selectedIds].map(id => document.getElementById(id)).filter(Boolean)
+    : [document.getElementById(editingNodeId)].filter(Boolean);
+  targets.forEach(el => {
+    const s = getNodeStyle(el);
+    s.borderColor  = document.getElementById('nep-border-color').value;
+    s.bgColor      = document.getElementById('nep-bg-color').value;
+    s.titleColor   = document.getElementById('nep-title-color').value;
+    s.textColor    = document.getElementById('nep-text-color').value;
+    s.borderWidth  = parseFloat(document.getElementById('nep-border-width').value);
+    s.borderRadius = parseInt(document.getElementById('nep-radius').value);
+    s.titleStyle   = document.getElementById('nep-title-style').value;
+    applyNodeStyle(el, s);
+  });
+  document.getElementById('nep-border-width-val').textContent = document.getElementById('nep-border-width').value;
+  document.getElementById('nep-radius-val').textContent = document.getElementById('nep-radius').value;
   scheduleAutoSave();
 }
 
