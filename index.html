@@ -391,6 +391,7 @@
     <span>Bulina</span> → mișcă firul &nbsp;·&nbsp;
     <span>✕</span> → șterge
   </div>
+  <button class="tool-btn" id="undo-btn" onclick="undo()" style="border:1px solid #2a2a2a; border-radius:20px; padding:5px 14px;">↩ Undo</button>
   <div id="nav-wrap">
     <button id="nav-btn" onclick="toggleNav()">☰ Noduri</button>
     <div id="nav-dropdown"></div>
@@ -475,6 +476,32 @@ let drawingWire = null, draggingHandle = null;
 let saveTimeout = null;
 let isLoading = true;
 let panX = 0, panY = 0, zoom = 1;
+
+// ── Undo stack ────────────────────────────────────────────────
+let undoStack = [];
+const UNDO_LIMIT = 50;
+
+function snapshotForUndo() {
+  if (isLoading) return;
+  const state = serializeState();
+  undoStack.push(JSON.stringify(state));
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+}
+
+function undo() {
+  if (undoStack.length === 0) return;
+  const raw = undoStack.pop();
+  const data = JSON.parse(raw);
+  // Clear current nodes
+  nodes.forEach(n => { const e = document.getElementById(n.id); if (e) e.remove(); });
+  nodes = []; connections = []; nodeCount = 0;
+  // Restore
+  nodeCount = data.nodeCount || 0;
+  (data.nodes || []).forEach(n => createNode(n.x, n.y, n.title, n.body, n.id, n.month, n.year, n.w, n.h));
+  connections = (data.connections || []).map(c => ({...c, midX: c.midX||undefined, midY: c.midY||undefined}));
+  renderWires();
+  scheduleAutoSave();
+}
 
 function applyTransform() {
   world.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
@@ -608,12 +635,12 @@ async function loadDiagram() {
 function getPortPos(nodeEl, side) {
   const r  = nodeEl.getBoundingClientRect();
   const wr = world.getBoundingClientRect();
-  const cx = r.left - wr.left + r.width / 2;
-  const cy = r.top  - wr.top  + r.height / 2;
-  if (side === 'right')  return {x: r.right  - wr.left, y: cy};
-  if (side === 'left')   return {x: r.left   - wr.left, y: cy};
-  if (side === 'bottom') return {x: cx, y: r.bottom - wr.top};
-  if (side === 'top')    return {x: cx, y: r.top    - wr.top};
+  const cx = (r.left - wr.left + r.width  / 2) / zoom;
+  const cy = (r.top  - wr.top  + r.height / 2) / zoom;
+  if (side === 'right')  return {x: (r.right  - wr.left) / zoom, y: cy};
+  if (side === 'left')   return {x: (r.left   - wr.left) / zoom, y: cy};
+  if (side === 'bottom') return {x: cx, y: (r.bottom - wr.top) / zoom};
+  if (side === 'top')    return {x: cx, y: (r.top    - wr.top) / zoom};
   return {x: cx, y: cy};
 }
 
@@ -801,17 +828,20 @@ function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h) {
 }
 
 function addNode() {
+  snapshotForUndo();
   createNode(80 + Math.random()*320, 80 + Math.random()*220, '', '');
   scheduleAutoSave();
 }
 
 function deleteConn(id) {
+  snapshotForUndo();
   connections = connections.filter(c => c.id !== id);
   if (selectedId === id) selectedId = null;
   renderWires(); scheduleAutoSave();
 }
 
 function deleteNode(nodeId) {
+  snapshotForUndo();
   const el = document.getElementById(nodeId);
   if (el) el.remove();
   nodes = nodes.filter(n => n.id !== nodeId);
@@ -838,7 +868,7 @@ async function clearAll() {
 // ── Mouse events ───────────────────────────────────────────────
 document.addEventListener('mousemove', (e) => {
   const wr = world.getBoundingClientRect();
-  const mx = e.clientX - wr.left, my = e.clientY - wr.top;
+  const mx = (e.clientX - wr.left) / zoom, my = (e.clientY - wr.top) / zoom;
   if (draggingNode) {
     draggingNode.style.left = (e.clientX - dragOffset.x) + 'px';
     draggingNode.style.top  = (e.clientY - dragOffset.y) + 'px';
@@ -859,6 +889,7 @@ document.addEventListener('mouseup', (e) => {
     if (t.classList.contains('port')) {
       const toNode = t.closest('.node');
       if (toNode && toNode.id !== drawingWire.fromNodeId) {
+        snapshotForUndo();
         connections.push({id: 'c'+Date.now(), from: drawingWire.fromNodeId, fromPort: drawingWire.fromPort,
           to: toNode.id, toPort: t.dataset.side, midX: undefined, midY: undefined});
         renderWires(); scheduleAutoSave();
@@ -871,6 +902,11 @@ document.addEventListener('mouseup', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    undo();
+    return;
+  }
   if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
     const a = document.activeElement;
     if (a && (a.classList.contains('node-body') || a.classList.contains('node-title'))) return;
