@@ -560,6 +560,17 @@
     will-change: transform;
   }
 
+
+  /* ── LASSO SELECTION ── */
+  #lasso-rect {
+    position: absolute;
+    border: 1.5px dashed #3a7bd5;
+    background: rgba(58,123,213,0.07);
+    pointer-events: none;
+    z-index: 50;
+    display: none;
+    border-radius: 3px;
+  }
 </style>
 </head>
 <body>
@@ -593,6 +604,7 @@
     <div class="logo">Wire Diagram</div>
     <div class="spinner"></div>
   </div>
+  <div id="lasso-rect"></div>
   <div id="world">
     <svg id="wires">
       <defs>
@@ -641,6 +653,22 @@
     <div class="nep-range-wrap">
       <input type="range" class="nep-range" id="nep-radius" min="0" max="28" step="1" value="14">
       <span class="nep-range-val" id="nep-radius-val">14</span>
+    </div>
+  </div>
+
+  <div class="nep-row">
+    <span class="nep-label">Mărime titlu</span>
+    <div class="nep-range-wrap">
+      <input type="range" class="nep-range" id="nep-title-size" min="9" max="28" step="1" value="13">
+      <span class="nep-range-val" id="nep-title-size-val">13px</span>
+    </div>
+  </div>
+
+  <div class="nep-row">
+    <span class="nep-label">Mărime text</span>
+    <div class="nep-range-wrap">
+      <input type="range" class="nep-range" id="nep-body-size" min="9" max="28" step="1" value="14">
+      <span class="nep-range-val" id="nep-body-size-val">14px</span>
     </div>
   </div>
 
@@ -784,27 +812,84 @@ canvas.addEventListener('wheel', (e) => {
   applyTransform();
 }, { passive: false });
 
-// ── Pan with middle mouse button drag ─────────────────────────
-let mmDragging = false, mmLast = {x:0, y:0};
+// ── Pan (hold & drag on background) + Lasso selection ────────
+let bgDragging = false, bgStart = {x:0, y:0}, bgMoved = false;
+let lassoDragging = false, lassoStart = {x:0, y:0};
+const lassoEl = document.getElementById('lasso-rect');
+
 canvas.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
   if (e.target !== canvas && e.target !== svgEl && e.target !== world) return;
   e.preventDefault();
-  mmDragging = true;
-  mmLast = {x: e.clientX, y: e.clientY};
-  canvas.style.cursor = 'grabbing';
+  bgStart = {x: e.clientX, y: e.clientY};
+  bgDragging = true;
+  bgMoved = false;
+  // Start lasso immediately
+  const cr = canvas.getBoundingClientRect();
+  lassoStart = {x: e.clientX - cr.left, y: e.clientY - cr.top};
+  lassoDragging = false;
 });
+
 document.addEventListener('mousemove', (e) => {
-  if (!mmDragging) return;
-  panX += e.clientX - mmLast.x;
-  panY += e.clientY - mmLast.y;
-  mmLast = {x: e.clientX, y: e.clientY};
-  applyPan();
+  if (!bgDragging) return;
+  const dx = e.clientX - bgStart.x, dy = e.clientY - bgStart.y;
+  if (!bgMoved && Math.hypot(dx, dy) < 5) return;
+  bgMoved = true;
+
+  if (e.shiftKey) {
+    // Shift+drag = lasso
+    lassoDragging = true;
+    canvas.style.cursor = 'crosshair';
+    const cr = canvas.getBoundingClientRect();
+    const cx = e.clientX - cr.left, cy = e.clientY - cr.top;
+    const x = Math.min(lassoStart.x, cx), y = Math.min(lassoStart.y, cy);
+    const w = Math.abs(cx - lassoStart.x), h = Math.abs(cy - lassoStart.y);
+    lassoEl.style.display = 'block';
+    lassoEl.style.left = x + 'px'; lassoEl.style.top = y + 'px';
+    lassoEl.style.width = w + 'px'; lassoEl.style.height = h + 'px';
+  } else {
+    // Normal drag = pan
+    lassoDragging = false;
+    lassoEl.style.display = 'none';
+    canvas.style.cursor = 'grabbing';
+    panX += e.clientX - bgStart.x;
+    panY += e.clientY - bgStart.y;
+    bgStart = {x: e.clientX, y: e.clientY};
+    applyPan();
+  }
 });
+
 document.addEventListener('mouseup', (e) => {
-  if (!mmDragging) return;
-  mmDragging = false;
+  if (!bgDragging) return;
+  bgDragging = false;
   canvas.style.cursor = 'default';
+
+  if (lassoDragging) {
+    // Finalize lasso — find nodes inside rect
+    lassoDragging = false;
+    lassoEl.style.display = 'none';
+    const cr = canvas.getBoundingClientRect();
+    const lx1 = (parseFloat(lassoEl.style.left)  - panX) / zoom;
+    const ly1 = (parseFloat(lassoEl.style.top)   - panY) / zoom;
+    const lx2 = lx1 + parseFloat(lassoEl.style.width)  / zoom;
+    const ly2 = ly1 + parseFloat(lassoEl.style.height) / zoom;
+
+    document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
+    selectedIds.clear(); selectedId = null;
+
+    nodes.forEach(n => {
+      const nel = document.getElementById(n.id);
+      if (!nel) return;
+      const nx = parseInt(nel.style.left), ny = parseInt(nel.style.top);
+      const nw = nel.offsetWidth, nh = nel.offsetHeight;
+      if (nx < lx2 && nx + nw > lx1 && ny < ly2 && ny + nh > ly1) {
+        nel.classList.add('selected');
+        selectedIds.add(n.id);
+        selectedId = n.id;
+      }
+    });
+    renderWires();
+  }
 });
 
 // ── Save status UI ─────────────────────────────────────────────
@@ -1371,6 +1456,8 @@ function applyNodeStyle(el, s) {
   }
   const body = el.querySelector('.node-body');
   if (body && s.textColor) body.style.color = s.textColor;
+  if (body && s.bodySize)  body.style.fontSize = s.bodySize + 'px';
+  if (title && s.titleSize) title.style.fontSize = s.titleSize + 'px';
   el.dataset.nodeStyle = JSON.stringify(s);
 }
 
@@ -1407,6 +1494,12 @@ function openNodeEditPanel(nodeId, anchorEl) {
   document.getElementById('nep-radius').value        = br;
   document.getElementById('nep-radius-val').textContent = br;
   document.getElementById('nep-title-style').value   = s.titleStyle   || 'normal';
+  const ts = s.titleSize || 13;
+  document.getElementById('nep-title-size').value = ts;
+  document.getElementById('nep-title-size-val').textContent = ts + 'px';
+  const bs = s.bodySize || 14;
+  document.getElementById('nep-body-size').value = bs;
+  document.getElementById('nep-body-size-val').textContent = bs + 'px';
 }
 
 function closeNodeEditPanel() {
@@ -1431,15 +1524,19 @@ function nepUpdate() {
     s.borderWidth  = parseFloat(document.getElementById('nep-border-width').value);
     s.borderRadius = parseInt(document.getElementById('nep-radius').value);
     s.titleStyle   = document.getElementById('nep-title-style').value;
+    s.titleSize    = parseInt(document.getElementById('nep-title-size').value);
+    s.bodySize     = parseInt(document.getElementById('nep-body-size').value);
     applyNodeStyle(el, s);
   });
   document.getElementById('nep-border-width-val').textContent = document.getElementById('nep-border-width').value;
   document.getElementById('nep-radius-val').textContent = document.getElementById('nep-radius').value;
+  document.getElementById('nep-title-size-val').textContent = document.getElementById('nep-title-size').value + 'px';
+  document.getElementById('nep-body-size-val').textContent  = document.getElementById('nep-body-size').value + 'px';
   scheduleAutoSave();
 }
 
 ['nep-border-color','nep-bg-color','nep-title-color','nep-text-color',
- 'nep-border-width','nep-radius','nep-title-style'].forEach(id => {
+ 'nep-border-width','nep-radius','nep-title-style','nep-title-size','nep-body-size'].forEach(id => {
   document.getElementById(id).addEventListener('input', nepUpdate);
 });
 
