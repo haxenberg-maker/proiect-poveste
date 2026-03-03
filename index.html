@@ -52,6 +52,10 @@
   </div>
 </div>
 
+<div id="wire-color-popup">
+  <span>Culoare fir</span>
+  <input type="color" id="wire-color-input" value="#3a7bd5">
+</div>
 <div id="toolbar">
   <button class="tool-btn" onclick="addNode()">+ Nod</button>
   <button class="tool-btn danger" onclick="deleteSelected()">✕ Șterge</button>
@@ -210,7 +214,8 @@ function serializeState() {
         title: el.querySelector('.node-title').textContent,
         body:  el.querySelector('.node-body').textContent,
         month: el.querySelector('.node-month').value,
-        year:  el.querySelector('.node-year').value
+        year:  el.querySelector('.node-year').value,
+        color: el.dataset.color || ''
       };
     }),
     connections: connections.map(c => ({...c})),
@@ -244,7 +249,7 @@ async function loadDiagram() {
       panX = data.panX || 0; panY = data.panY || 0; zoom = data.zoom || 1;
       applyTransform();
       (data.nodes || []).forEach(n => {
-        createNode(n.x, n.y, n.title, n.body, n.id, n.month, n.year, n.w, n.h);
+        createNode(n.x, n.y, n.title, n.body, n.id, n.month, n.year, n.w, n.h, n.color);
       });
       connections = (data.connections || []).map(c => ({...c, midX: c.midX||undefined, midY: c.midY||undefined}));
       renderWires();
@@ -297,17 +302,29 @@ function renderWires() {
     g.classList.add('wire-group');
     if (selectedId === conn.id) g.classList.add('selected');
 
+    const wireColor = conn.color || '#3a7bd5';
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', qPath(p1.x, p1.y, p2.x, p2.y, conn.midX, conn.midY));
     path.setAttribute('class', 'wire');
     if (selectedId === conn.id) path.classList.add('selected');
+    else path.style.stroke = wireColor;
     path.setAttribute('marker-end', 'url(#arrow)');
-    path.addEventListener('click', (e) => { e.stopPropagation(); selectedId = conn.id; renderWires(); });
+    path.addEventListener('click', (e) => {
+      e.stopPropagation(); selectedId = conn.id; renderWires();
+      // Show color popup at screen position
+      const cr = canvas.getBoundingClientRect();
+      const wr = world.getBoundingClientRect();
+      showWireColorPopup(conn.id,
+        wr.left + conn.midX * zoom + 20,
+        wr.top  + conn.midY * zoom
+      );
+    });
 
     const handle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     handle.setAttribute('cx', conn.midX); handle.setAttribute('cy', conn.midY);
     handle.setAttribute('r', selectedId === conn.id ? 7 : 5);
     handle.setAttribute('class', 'wire-handle');
+    if (selectedId !== conn.id) handle.style.fill = wireColor;
     if (selectedId === conn.id) handle.classList.add('selected');
     handle.addEventListener('mousedown', (e) => {
       e.stopPropagation(); selectedId = conn.id;
@@ -330,10 +347,45 @@ function renderWires() {
   });
 }
 
+// ── Node color helper ─────────────────────────────────────────
+function applyNodeColor(el, color) {
+  const isDefault = !color || color === '#2e2e2e';
+  el.style.borderColor = isDefault ? '' : color + '88';
+  el.style.setProperty('--node-accent', isDefault ? '#222' : color + '44');
+  const header = el.querySelector('.node-header');
+  if (header) header.style.borderBottomColor = isDefault ? '' : color + '66';
+}
+
+// ── Wire color popup ───────────────────────────────────────────
+const wireColorPopup = document.getElementById('wire-color-popup');
+const wireColorInput = document.getElementById('wire-color-input');
+
+function showWireColorPopup(connId, cx, cy) {
+  const conn = connections.find(c => c.id === connId);
+  if (!conn) return;
+  wireColorInput.value = conn.color || '#3a7bd5';
+  wireColorPopup.style.left = cx + 'px';
+  wireColorPopup.style.top  = (cy - 60) + 'px';
+  wireColorPopup.classList.add('show');
+  wireColorInput.oninput = (e) => {
+    conn.color = e.target.value;
+    renderWires();
+    scheduleAutoSave();
+  };
+}
+
+function hideWireColorPopup() {
+  wireColorPopup.classList.remove('show');
+}
+
+document.addEventListener('click', (e) => {
+  if (!wireColorPopup.contains(e.target)) hideWireColorPopup();
+});
+
 // ── Node creation ──────────────────────────────────────────────
 const MONTHS = ["Ian","Feb","Mar","Apr","Mai","Iun","Iul","Aug","Sep","Oct","Noi","Dec"];
 
-function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h) {
+function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h, savedColor) {
   if (!forcedId) nodeCount++;
   const id = forcedId || ('node-' + nodeCount);
 
@@ -344,6 +396,9 @@ function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h) {
   el.style.top  = y + 'px';
   if (w) el.style.width  = w + 'px';
   if (h) el.style.height = h + 'px';
+  const nodeColor = savedColor || '#2e2e2e';
+  el.dataset.color = nodeColor;
+  applyNodeColor(el, nodeColor);
 
   // Re-render wires & save on resize
   const observer = new ResizeObserver(() => {
@@ -369,7 +424,26 @@ function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h) {
   delBtn.className = 'node-delete'; delBtn.innerHTML = '✕';
   delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteNode(id); });
 
+  // ── Color swatch ──
+  const colorBtn = document.createElement('div');
+  colorBtn.className = 'node-color-btn';
+  colorBtn.style.background = nodeColor === '#2e2e2e' ? '#2e2e2e' : nodeColor;
+  const colorInput = document.createElement('input');
+  colorInput.type = 'color';
+  colorInput.value = nodeColor === '#2e2e2e' ? '#3a7bd5' : nodeColor;
+  colorInput.addEventListener('input', (e) => {
+    e.stopPropagation();
+    const c = e.target.value;
+    el.dataset.color = c;
+    colorBtn.style.background = c;
+    applyNodeColor(el, c);
+    scheduleAutoSave();
+  });
+  colorInput.addEventListener('mousedown', e => e.stopPropagation());
+  colorBtn.appendChild(colorInput);
+
   header.appendChild(titleEl);
+  header.appendChild(colorBtn);
   header.appendChild(delBtn);
 
   // ── Body ──
@@ -437,7 +511,7 @@ function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h) {
 
   // ── Drag to move (skip resize corner, ports, editable areas) ──
   el.addEventListener('mousedown', (e) => {
-    const skipClasses = ['port','node-body','node-title','node-delete','node-month','node-year'];
+    const skipClasses = ['port','node-body','node-title','node-delete','node-month','node-year','node-color-btn'];
     if (skipClasses.some(c => e.target.classList.contains(c))) return;
 
     // Resize zone = bottom-right 16px
