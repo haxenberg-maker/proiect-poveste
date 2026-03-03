@@ -957,12 +957,12 @@ async function loadDiagram() {
       resetView();
       setStatus('saved', 'Salvat ✓');
     } else {
-      initDefaultDiagram();
+      setStatus('saved', 'Gol ✓');
     }
   } catch(e) {
     setStatus('error', 'Eroare încărcare');
     console.error(e);
-    initDefaultDiagram();
+    // Do NOT reset data on error — show empty canvas instead
   } finally {
     isLoading = false;
     overlay.style.opacity = '0';
@@ -1315,10 +1315,10 @@ function deleteSelected() {
 async function clearAll() {
   if (!confirm('⚠️ Ești sigur că vrei să ștergi TOT? Această acțiune nu poate fi anulată!')) return;
   nodes.forEach(n => { const e = document.getElementById(n.id); if (e) e.remove(); });
-  nodes = []; connections = []; selectedId = null; nodeCount = 0;
+  nodes = []; connections = []; selectedId = null; selectedIds.clear(); nodeCount = 0;
   renderWires();
   await DIAGRAM_REF.remove();
-  initDefaultDiagram();
+  setStatus('saved', 'Gol ✓');
 }
 
 // ── Mouse events ───────────────────────────────────────────────
@@ -1628,20 +1628,7 @@ function resetView() {
   applyTransform();
 }
 
-// ── Default diagram ────────────────────────────────────────────
-function initDefaultDiagram() {
-  const n1 = createNode(60,  130, 'Start',     '');
-  const n2 = createNode(290,  60, 'Procesare', '');
-  const n3 = createNode(290, 255, 'Validare',  '');
-  const n4 = createNode(80,  415, 'Output',    '');
-  setTimeout(() => {
-    connections.push({id:'c1', from:n1, fromPort:'right',  to:n2, toPort:'left',   midX:undefined, midY:undefined});
-    connections.push({id:'c2', from:n2, fromPort:'bottom', to:n3, toPort:'top',    midX:undefined, midY:undefined});
-    connections.push({id:'c3', from:n3, fromPort:'bottom', to:n4, toPort:'right',  midX:undefined, midY:undefined});
-    renderWires();
-    scheduleAutoSave();
-  }, 50);
-}
+// ── Default diagram removed — always load from Firebase ──────
 </script>
 </body>
 </html>
