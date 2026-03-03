@@ -422,7 +422,7 @@
   <button class="tool-btn" onclick="addNode()">+ Nod</button>
   <button class="tool-btn danger" onclick="deleteSelected()">✕ Șterge</button>
   <button class="tool-btn" onclick="resetView()">⌂ Vedere</button>
-  <button class="tool-btn" onclick="clearAll()">Resetează</button>
+
 </div>
 
 <script>
@@ -827,6 +827,7 @@ function deleteSelected() {
 }
 
 async function clearAll() {
+  if (!confirm('⚠️ Ești sigur că vrei să ștergi TOT? Această acțiune nu poate fi anulată!')) return;
   nodes.forEach(n => { const e = document.getElementById(n.id); if (e) e.remove(); });
   nodes = []; connections = []; selectedId = null; nodeCount = 0;
   renderWires();
