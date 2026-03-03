@@ -1,0 +1,399 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f0f0f;
+    font-family: 'Syne', sans-serif;
+    color: #e8e8e8;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    padding: 12px 20px;
+    background: #161616;
+    border-bottom: 1px solid #2a2a2a;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    z-index: 100;
+  }
+  header h1 { font-size: 13px; letter-spacing: 0.15em; text-transform: uppercase; color: #888; }
+  .hint { font-size: 11px; color: #444; }
+  .hint span { color: #aaa; }
+
+  #save-status {
+    margin-left: auto;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.3s;
+  }
+  #save-status .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #444;
+    transition: background 0.3s;
+  }
+  #save-status.saving { color: #f5a623; }
+  #save-status.saving .dot { background: #f5a623; animation: pulse 0.8s infinite; }
+  #save-status.saved  { color: #4caf7d; }
+  #save-status.saved  .dot { background: #4caf7d; }
+  #save-status.error  { color: #e05555; }
+  #save-status.error  .dot { background: #e05555; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  #canvas {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    cursor: default;
+  }
+  svg#wires {
+    position: absolute;
+    top: 0; left: 0;
+    width: 9999px; height: 9999px;
+    pointer-events: none;
+    z-index: 1;
+    overflow: visible;
+  }
+  .wire {
+    fill: none;
+    stroke: #3a7bd5;
+    stroke-width: 3;
+    stroke-linecap: round;
+    pointer-events: visibleStroke;
+    cursor: pointer;
+    transition: stroke 0.15s;
+    filter: drop-shadow(0 0 4px rgba(58,123,213,0.4));
+  }
+  .wire:hover { stroke: #6fa3f5; }
+  .wire.selected { stroke: #f5a623; filter: drop-shadow(0 0 6px rgba(245,166,35,0.6)); }
+  .wire-handle {
+    fill: #3a7bd5;
+    stroke: #0f0f0f;
+    stroke-width: 2;
+    cursor: grab;
+    pointer-events: all;
+    transition: fill 0.15s;
+    filter: drop-shadow(0 0 3px rgba(58,123,213,0.7));
+  }
+  .wire-handle:hover { fill: #6fa3f5; }
+  .wire-handle.selected { fill: #f5a623; filter: drop-shadow(0 0 5px rgba(245,166,35,0.8)); }
+  .wire-del-bg {
+    fill: #1e1010; stroke: #c04040; stroke-width: 1.5;
+    cursor: pointer; pointer-events: all;
+    opacity: 0; transition: opacity 0.15s;
+  }
+  .wire-del-txt {
+    fill: #e05555; font-size: 11px; font-family: sans-serif;
+    font-weight: bold; cursor: pointer; pointer-events: all;
+    opacity: 0; user-select: none;
+    text-anchor: middle; dominant-baseline: central;
+  }
+  .wire-group.selected .wire-del-bg,
+  .wire-group.selected .wire-del-txt { opacity: 1; }
+
+  /* ── NODE ── */
+  .node {
+    position: absolute;
+    background: #1a1a1a;
+    border: 1.5px solid #2e2e2e;
+    border-radius: 14px;
+    min-width: 200px;
+    min-height: 120px;
+    width: 240px;
+    height: 190px;
+    /* Resize nativ browser — colț dreapta-jos */
+    resize: both;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    cursor: grab;
+    user-select: none;
+    z-index: 10;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+  .node:hover { border-color: #444; }
+  .node:hover .node-delete,
+  .node.selected .node-delete { opacity: 1; }
+  .node.dragging { cursor: grabbing; z-index: 20; }
+  .node.selected { border-color: #3a7bd5; box-shadow: 0 0 0 1px rgba(58,123,213,0.25), 0 4px 24px rgba(0,0,0,0.5); }
+
+  /* ── HEADER ── */
+  .node-header {
+    flex-shrink: 0;
+    padding: 8px 36px 8px 12px;
+    border-bottom: 1px solid #222;
+    display: flex;
+    align-items: center;
+    position: relative;
+    min-height: 42px;
+  }
+
+  /* ── DATE SELECTORS — footer strip at bottom of node ── */
+  .node-date-wrap {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px 8px;
+    border-top: 1px solid #1e1e1e;
+    background: #141414;
+    border-radius: 0 0 12px 12px;
+  }
+  .node-date-label {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: #333;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    margin-right: 2px;
+  }
+  .node-month,
+  .node-year {
+    background: transparent;
+    border: none;
+    border-bottom: 1.5px solid transparent;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    outline: none;
+    cursor: pointer;
+    padding: 2px 2px 1px;
+    font-family: inherit;
+    appearance: none;
+    -webkit-appearance: none;
+    text-align: center;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .node-month { width: 38px; }
+  .node-year  { width: 46px; }
+  .node-month:hover, .node-year:hover {
+    border-bottom-color: #444;
+    color: #fff;
+  }
+  .node-month:focus, .node-year:focus {
+    border-bottom-color: #3a7bd5;
+    color: #fff;
+  }
+  /* dim if no real value context — override via JS class */
+  .node-month.unset, .node-year.unset {
+    color: #383838;
+    font-weight: 400;
+  }
+
+  .node-title {
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #666;
+    outline: none;
+    flex: 1;
+    min-width: 0;
+    cursor: text;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .node-title:focus {
+    color: #bbb;
+    border-bottom-color: #3a7bd5;
+    white-space: normal;
+    overflow: visible;
+  }
+  .node-title:empty::before { content: 'Titlu...'; color: #333; pointer-events: none; }
+  .node-delete {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #2a1818; border: 1px solid #4a2020; color: #c04040;
+    font-size: 10px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; opacity: 0; transition: opacity 0.15s, background 0.15s;
+    z-index: 20;
+    flex-shrink: 0;
+  }
+  .node-delete:hover { background: #c04040; color: #fff; border-color: #c04040; }
+
+  /* ── BODY — fills remaining height, text wraps naturally ── */
+  .node-body {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #ccc;
+    outline: none;
+    cursor: text;
+    overflow-y: auto;
+    overflow-x: hidden;
+    word-break: break-word;
+    white-space: pre-wrap;
+    /* scrollbar thin */
+    scrollbar-width: thin;
+    scrollbar-color: #2a2a2a transparent;
+  }
+  .node-body::-webkit-scrollbar { width: 4px; }
+  .node-body::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+  .node-body:focus { color: #fff; }
+  .node-body:empty::before { content: attr(data-placeholder); color: #2e2e2e; pointer-events: none; }
+
+  /* ── Resize handle indicator (decorative corner dots) ── */
+  .node::after {
+    content: '';
+    position: absolute;
+    right: 5px;
+    bottom: 5px;
+    width: 8px; height: 8px;
+    background:
+      radial-gradient(circle, #333 1.5px, transparent 1.5px) 0 0 / 4px 4px,
+      radial-gradient(circle, #333 1.5px, transparent 1.5px) 4px 4px / 4px 4px;
+    pointer-events: none;
+    opacity: 0.5;
+  }
+
+  .port {
+    position: absolute;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: #1e1e1e;
+    border: 2px solid #444;
+    cursor: crosshair; z-index: 15;
+    transition: background 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+    opacity: 0;
+  }
+  /* Show ports when hovering the node */
+  .node:hover .port, .node.selected .port { opacity: 1; }
+  .port::after {
+    content: '';
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    background: #3e3e3e;
+    transition: background 0.15s;
+  }
+  .port:hover {
+    background: #1a2a3a;
+    border-color: #3a7bd5;
+    transform: scale(1.3);
+    box-shadow: 0 0 10px rgba(58,123,213,0.6);
+  }
+  .port:hover::after { background: #3a7bd5; }
+  .port.active { background: #1a2a3a; border-color: #6fa3f5; opacity: 1; }
+  .port.active::after { background: #6fa3f5; }
+  .port-right  { right: -10px; top: 50%; transform: translateY(-50%); }
+  .port-left   { left: -10px;  top: 50%; transform: translateY(-50%); }
+  .port-bottom { bottom: -10px; left: 50%; transform: translateX(-50%); }
+  .port-top    { top: -10px;   left: 50%; transform: translateX(-50%); }
+  .port-right:hover  { transform: translateY(-50%) scale(1.3); }
+  .port-left:hover   { transform: translateY(-50%) scale(1.3); }
+  .port-bottom:hover { transform: translateX(-50%) scale(1.3); }
+  .port-top:hover    { transform: translateX(-50%) scale(1.3); }
+  #toolbar {
+    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #161616; border: 1px solid #2a2a2a;
+    border-radius: 40px; padding: 8px 16px;
+    display: flex; gap: 8px; z-index: 100;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  }
+  .tool-btn {
+    background: none; border: none; color: #666;
+    font-size: 11px; font-family: 'Syne', sans-serif;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 6px 14px; border-radius: 20px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tool-btn:hover { color: #ccc; background: #222; }
+  .tool-btn.danger:hover { color: #e05555; background: rgba(224,85,85,0.1); }
+  #temp-wire {
+    fill: none; stroke: #3a7bd5; stroke-width: 2;
+    stroke-dasharray: 6 4; pointer-events: none; opacity: 0.7;
+  }
+  #loading-overlay {
+    position: absolute; inset: 0;
+    background: #0f0f0f;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 16px; z-index: 999;
+    transition: opacity 0.4s;
+  }
+  #loading-overlay .logo { font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase; color: #444; }
+  #loading-overlay .spinner {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 2px solid #222; border-top-color: #3a7bd5;
+    animation: spin 0.7s linear infinite;
+  }
+
+  /* ── NODE NAVIGATOR ── */
+  #nav-btn {
+    background: none;
+    border: 1px solid #2a2a2a;
+    color: #555;
+    font-size: 10px;
+    font-family: 'Syne', sans-serif;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 5px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  #nav-btn:hover { color: #ccc; border-color: #444; background: #1e1e1e; }
+  #nav-btn.open  { color: #ccc; border-color: #3a7bd5; background: #1a1f2e; }
+
+  #nav-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 220px;
+    max-height: 320px;
+    overflow-y: auto;
+    background: #161616;
+    border: 1px solid #2a2a2a;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+    z-index: 500;
+    display: none;
+    scrollbar-width: thin;
+    scrollbar-color: #2a2a2a transparent;
+  }
+  #nav-dropdown.open { display: block; }
+  #nav-dropdown .nav-item {
+    padding: 9px 14px;
+    font-size: 11px;
+    color: #777;
+    cursor: pointer;
+    border-bottom: 1px solid #1e1e1e;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.1s, color 0.1s;
+    letter-spacing: 0.05em;
+  }
+  #nav-dropdown .nav-item:last-child { border-bottom: none; }
+  #nav-dropdown .nav-item:hover { background: #1e1e1e; color: #ddd; }
+  #nav-dropdown .nav-item .nav-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #3a7bd5; flex-shrink: 0;
+  }
+  #nav-dropdown .nav-empty {
+    padding: 12px 14px;
+    font-size: 11px;
+    color: #333;
+    text-align: center;
+  }
+  #nav-wrap {
+    position: relative;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* ── WORLD (pan container) ── */
+  #world {
+    position: absolute;
+    top: 0; left: 0;
+    width: 0; height: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
