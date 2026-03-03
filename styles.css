@@ -436,6 +436,111 @@
     padding: 2px;
   }
 
+
+  /* ── NODE EDIT PANEL ── */
+  .node-edit-btn {
+    position: absolute;
+    left: 8px; top: 50%;
+    transform: translateY(-50%);
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: #202020;
+    border: 1px solid #333;
+    color: #555;
+    font-size: 11px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s, color 0.15s;
+    z-index: 20;
+    flex-shrink: 0;
+  }
+  .node:hover .node-edit-btn,
+  .node.selected .node-edit-btn { opacity: 1; }
+  .node-edit-btn:hover { background: #2a2a2a; color: #aaa; border-color: #555; }
+
+  /* Shift title right to make room for pencil */
+  .node-header { padding-left: 36px; }
+
+  /* ── EDIT PANEL POPUP ── */
+  .node-edit-panel {
+    position: fixed;
+    background: #181818;
+    border: 1px solid #2e2e2e;
+    border-radius: 12px;
+    padding: 14px 16px;
+    width: 230px;
+    z-index: 1000;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.75);
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .node-edit-panel.show { display: flex; }
+
+  .nep-title {
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #444;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #222;
+  }
+
+  .nep-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .nep-label {
+    font-size: 11px;
+    color: #666;
+    letter-spacing: 0.05em;
+    flex: 1;
+  }
+  .nep-color {
+    width: 30px; height: 24px;
+    border-radius: 6px;
+    border: 1px solid #333;
+    cursor: pointer;
+    padding: 2px;
+    background: #222;
+  }
+  .nep-select {
+    background: #222;
+    border: 1px solid #333;
+    color: #aaa;
+    font-size: 11px;
+    font-family: inherit;
+    border-radius: 6px;
+    padding: 4px 7px;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    max-width: 110px;
+  }
+  .nep-select:focus { border-color: #3a7bd5; }
+
+  .nep-range-wrap {
+    display: flex; align-items: center; gap: 8px; flex: 1;
+  }
+  .nep-range {
+    flex: 1;
+    accent-color: #3a7bd5;
+    cursor: pointer;
+  }
+  .nep-range-val {
+    font-size: 10px; color: #555; width: 28px; text-align: right;
+  }
+
+  .nep-close {
+    align-self: flex-end;
+    font-size: 10px; color: #444;
+    cursor: pointer; letter-spacing: 0.08em; text-transform: uppercase;
+    transition: color 0.15s;
+  }
+  .nep-close:hover { color: #e05555; }
   @keyframes spin { to { transform: rotate(360deg); } }
   /* ── WORLD (pan container) ── */
   #world {
