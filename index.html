@@ -1433,6 +1433,8 @@ document.addEventListener('keydown', (e) => {
 
 canvas.addEventListener('click', (e) => {
   if (e.target === canvas || e.target === svgEl || e.target === world) {
+    // Don't clear if we just finished a lasso drag
+    if (selectedIds.size > 0) return;
     selectedId = null;
     selectedIds.clear();
     multiDragOffsets = [];
