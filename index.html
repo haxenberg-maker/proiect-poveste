@@ -814,95 +814,29 @@ canvas.addEventListener('wheel', (e) => {
 
 // ── Pan (shift+drag on background) + Lasso selection ─────────
 let panDragging = false, panLast = {x:0, y:0};
-let lassoActive = false, lassoOrigin = null;
+let lassoOrigin = null, lassoActive = false;
 const lassoEl = document.getElementById('lasso-rect');
 
-canvas.addEventListener('mousedown', (e) => {
+document.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
-  // Allow starting lasso/pan on canvas background, world, or SVG (but not nodes/ports/wires)
+  // Only start if NOT clicking on a node, port, wire, button, input, select
   const t = e.target;
-  const onBackground = t === canvas || t === world || t === svgEl ||
-    (t.closest && !t.closest('.node') && !t.closest('.wire-group') && t.closest('#canvas'));
-  if (!onBackground) return;
-  // Don't start if clicking on a wire or handle
-  if (t.classList && (t.classList.contains('wire') || t.classList.contains('wire-handle') ||
-      t.classList.contains('wire-del-bg') || t.classList.contains('wire-del-txt'))) return;
-  e.preventDefault();
+  if (t.closest('.node')) return;
+  if (t.closest('.wire-group')) return;
+  if (t.tagName === 'BUTTON' || t.tagName === 'INPUT' || t.tagName === 'SELECT') return;
+  if (!t.closest('#canvas')) return;
 
   if (e.shiftKey) {
     panDragging = true;
     panLast = {x: e.clientX, y: e.clientY};
     canvas.style.cursor = 'grabbing';
+    e.preventDefault();
   } else {
     const cr = canvas.getBoundingClientRect();
     lassoOrigin = {x: e.clientX - cr.left, y: e.clientY - cr.top};
     lassoActive = false;
+    e.preventDefault();
   }
-});
-
-document.addEventListener('mousemove', (e) => {
-  // ── Pan ──
-  if (panDragging) {
-    panX += e.clientX - panLast.x;
-    panY += e.clientY - panLast.y;
-    panLast = {x: e.clientX, y: e.clientY};
-    applyPan();
-    return;
-  }
-  // ── Lasso ──
-  if (!lassoOrigin || e.buttons !== 1 || draggingNode || drawingWire || draggingHandle) return;
-  const cr = canvas.getBoundingClientRect();
-  const cx = e.clientX - cr.left;
-  const cy = e.clientY - cr.top;
-  const dx = cx - lassoOrigin.x, dy = cy - lassoOrigin.y;
-  if (!lassoActive && Math.hypot(dx, dy) < 5) return;
-  lassoActive = true;
-  canvas.style.cursor = 'crosshair';
-  lassoEl.style.display = 'block';
-  lassoEl.style.left   = Math.min(lassoOrigin.x, cx) + 'px';
-  lassoEl.style.top    = Math.min(lassoOrigin.y, cy) + 'px';
-  lassoEl.style.width  = Math.abs(dx) + 'px';
-  lassoEl.style.height = Math.abs(dy) + 'px';
-});
-
-document.addEventListener('mouseup', (e) => {
-  if (panDragging) {
-    panDragging = false;
-    canvas.style.cursor = 'default';
-    return;
-  }
-  if (!lassoOrigin) return;
-  const wasActive = lassoActive;
-  lassoActive = false;
-  canvas.style.cursor = 'default';
-
-  if (wasActive) {
-    const cr  = canvas.getBoundingClientRect();
-    const lx1 = parseFloat(lassoEl.style.left);
-    const ly1 = parseFloat(lassoEl.style.top);
-    const lx2 = lx1 + parseFloat(lassoEl.style.width);
-    const ly2 = ly1 + parseFloat(lassoEl.style.height);
-
-    document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
-    selectedIds.clear(); selectedId = null;
-
-    nodes.forEach(n => {
-      const nel = document.getElementById(n.id);
-      if (!nel) return;
-      const nr = nel.getBoundingClientRect();
-      const nx1 = nr.left   - cr.left, ny1 = nr.top    - cr.top;
-      const nx2 = nr.right  - cr.left, ny2 = nr.bottom - cr.top;
-      if (nx1 < lx2 && nx2 > lx1 && ny1 < ly2 && ny2 > ly1) {
-        nel.classList.add('selected');
-        selectedIds.add(n.id);
-        selectedId = n.id;
-      }
-    });
-    renderWires();
-  }
-
-  lassoEl.style.display = 'none';
-  lassoOrigin = null;
 });
 
 // ── Save status UI ─────────────────────────────────────────────
@@ -1338,6 +1272,8 @@ async function clearAll() {
 document.addEventListener('mousemove', (e) => {
   const wr = world.getBoundingClientRect();
   const mx = (e.clientX - wr.left) / zoom, my = (e.clientY - wr.top) / zoom;
+
+  // ── Node / multi drag ──
   if (draggingNode) {
     if (multiDragOffsets.length > 1) {
       multiDragOffsets.forEach(o => {
@@ -1350,16 +1286,44 @@ document.addEventListener('mousemove', (e) => {
     }
     renderWires();
   }
+
+  // ── Wire drawing & handle drag ──
   if (drawingWire) tempWire.setAttribute('d', qPath(drawingWire.startX, drawingWire.startY, mx, my));
   if (draggingHandle) {
     const conn = connections.find(c => c.id === draggingHandle.connId);
     if (conn) { conn.midX = mx; conn.midY = my; renderWires(); }
   }
+
+  // ── Pan ──
+  if (panDragging) {
+    panX += e.clientX - panLast.x;
+    panY += e.clientY - panLast.y;
+    panLast = {x: e.clientX, y: e.clientY};
+    applyPan();
+    return;
+  }
+
+  // ── Lasso ──
+  if (!lassoOrigin || draggingNode || drawingWire || draggingHandle) return;
+  const cr = canvas.getBoundingClientRect();
+  const cx = e.clientX - cr.left, cy = e.clientY - cr.top;
+  const dx = cx - lassoOrigin.x, dy = cy - lassoOrigin.y;
+  if (!lassoActive && Math.hypot(dx, dy) < 6) return;
+  lassoActive = true;
+  canvas.style.cursor = 'crosshair';
+  lassoEl.style.display = 'block';
+  lassoEl.style.left   = Math.min(lassoOrigin.x, cx) + 'px';
+  lassoEl.style.top    = Math.min(lassoOrigin.y, cy) + 'px';
+  lassoEl.style.width  = Math.abs(dx) + 'px';
+  lassoEl.style.height = Math.abs(dy) + 'px';
 });
 
 document.addEventListener('mouseup', (e) => {
+  // ── Node drag end ──
   if (draggingNode) { draggingNode.classList.remove('dragging'); draggingNode = null; multiDragOffsets = []; renderWires(); scheduleAutoSave(); }
+  // ── Handle drag end ──
   if (draggingHandle) { draggingHandle = null; scheduleAutoSave(); }
+  // ── Wire draw end ──
   if (drawingWire) {
     const t = e.target;
     if (t.classList.contains('port')) {
@@ -1375,6 +1339,42 @@ document.addEventListener('mouseup', (e) => {
     document.querySelectorAll('.port.active').forEach(p => p.classList.remove('active'));
     drawingWire = null;
   }
+  // ── Pan end ──
+  if (panDragging) {
+    panDragging = false;
+    canvas.style.cursor = 'default';
+    return;
+  }
+  // ── Lasso end ──
+  if (!lassoOrigin) return;
+  const wasActive = lassoActive;
+  lassoOrigin = null;
+  lassoActive = false;
+  canvas.style.cursor = 'default';
+  lassoEl.style.display = 'none';
+  if (!wasActive) return;
+
+  const cr  = canvas.getBoundingClientRect();
+  const lx1 = parseFloat(lassoEl.style.left);
+  const ly1 = parseFloat(lassoEl.style.top);
+  const lx2 = lx1 + parseFloat(lassoEl.style.width);
+  const ly2 = ly1 + parseFloat(lassoEl.style.height);
+
+  document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
+  selectedIds.clear(); selectedId = null;
+  nodes.forEach(n => {
+    const nel = document.getElementById(n.id);
+    if (!nel) return;
+    const nr = nel.getBoundingClientRect();
+    const nx1 = nr.left - cr.left, ny1 = nr.top    - cr.top;
+    const nx2 = nr.right- cr.left, ny2 = nr.bottom - cr.top;
+    if (nx1 < lx2 && nx2 > lx1 && ny1 < ly2 && ny2 > ly1) {
+      nel.classList.add('selected');
+      selectedIds.add(n.id);
+      selectedId = n.id;
+    }
+  });
+  renderWires();
 });
 
 document.addEventListener('keydown', (e) => {
