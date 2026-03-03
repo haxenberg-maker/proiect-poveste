@@ -424,6 +424,28 @@ canvas.addEventListener('wheel', (e) => {
   applyPan();
 }, { passive: false });
 
+// ── Pan with middle mouse button drag ─────────────────────────
+let mmDragging = false, mmLast = {x:0, y:0};
+canvas.addEventListener('mousedown', (e) => {
+  if (e.button !== 1) return;
+  e.preventDefault();
+  mmDragging = true;
+  mmLast = {x: e.clientX, y: e.clientY};
+  canvas.style.cursor = 'grabbing';
+});
+document.addEventListener('mousemove', (e) => {
+  if (!mmDragging) return;
+  panX += e.clientX - mmLast.x;
+  panY += e.clientY - mmLast.y;
+  mmLast = {x: e.clientX, y: e.clientY};
+  applyPan();
+});
+document.addEventListener('mouseup', (e) => {
+  if (e.button !== 1 || !mmDragging) return;
+  mmDragging = false;
+  canvas.style.cursor = 'default';
+});
+
 // ── Save status UI ─────────────────────────────────────────────
 function setStatus(state, text) {
   const el = document.getElementById('save-status');
