@@ -427,7 +427,8 @@ canvas.addEventListener('wheel', (e) => {
 // ── Pan with middle mouse button drag ─────────────────────────
 let mmDragging = false, mmLast = {x:0, y:0};
 canvas.addEventListener('mousedown', (e) => {
-  if (e.button !== 1) return;
+  if (e.button !== 0) return;
+  if (e.target !== canvas && e.target !== svgEl && e.target !== world) return;
   e.preventDefault();
   mmDragging = true;
   mmLast = {x: e.clientX, y: e.clientY};
@@ -441,7 +442,7 @@ document.addEventListener('mousemove', (e) => {
   applyPan();
 });
 document.addEventListener('mouseup', (e) => {
-  if (e.button !== 1 || !mmDragging) return;
+  if (!mmDragging) return;
   mmDragging = false;
   canvas.style.cursor = 'default';
 });
