@@ -812,68 +812,76 @@ canvas.addEventListener('wheel', (e) => {
   applyTransform();
 }, { passive: false });
 
-// ── Pan (hold & drag on background) + Lasso selection ────────
-let bgDragging = false, bgStart = {x:0, y:0}, bgMoved = false;
-let lassoDragging = false, lassoStart = {x:0, y:0};
+// ── Pan (shift+drag on background) + Lasso selection ─────────
+let panDragging = false, panLast = {x:0, y:0};
+let lassoActive = false, lassoOrigin = null;
 const lassoEl = document.getElementById('lasso-rect');
 
 canvas.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
-  if (e.target !== canvas && e.target !== svgEl && e.target !== world) return;
+  // Allow starting lasso/pan on canvas background, world, or SVG (but not nodes/ports/wires)
+  const t = e.target;
+  const onBackground = t === canvas || t === world || t === svgEl ||
+    (t.closest && !t.closest('.node') && !t.closest('.wire-group') && t.closest('#canvas'));
+  if (!onBackground) return;
+  // Don't start if clicking on a wire or handle
+  if (t.classList && (t.classList.contains('wire') || t.classList.contains('wire-handle') ||
+      t.classList.contains('wire-del-bg') || t.classList.contains('wire-del-txt'))) return;
   e.preventDefault();
-  bgStart = {x: e.clientX, y: e.clientY};
-  bgDragging = true;
-  bgMoved = false;
-  // Start lasso immediately
-  const cr = canvas.getBoundingClientRect();
-  lassoStart = {x: e.clientX - cr.left, y: e.clientY - cr.top};
-  lassoDragging = false;
-});
-
-document.addEventListener('mousemove', (e) => {
-  if (!bgDragging) return;
-  const dx = e.clientX - bgStart.x, dy = e.clientY - bgStart.y;
-  if (!bgMoved && Math.hypot(dx, dy) < 5) return;
-  bgMoved = true;
 
   if (e.shiftKey) {
-    // Shift+drag = pan
-    lassoDragging = false;
-    lassoEl.style.display = 'none';
+    panDragging = true;
+    panLast = {x: e.clientX, y: e.clientY};
     canvas.style.cursor = 'grabbing';
-    panX += e.clientX - bgStart.x;
-    panY += e.clientY - bgStart.y;
-    bgStart = {x: e.clientX, y: e.clientY};
-    applyPan();
   } else {
-    // Normal drag = lasso
-    lassoDragging = true;
-    canvas.style.cursor = 'crosshair';
     const cr = canvas.getBoundingClientRect();
-    const cx = e.clientX - cr.left, cy = e.clientY - cr.top;
-    const x = Math.min(lassoStart.x, cx), y = Math.min(lassoStart.y, cy);
-    const w = Math.abs(cx - lassoStart.x), h = Math.abs(cy - lassoStart.y);
-    lassoEl.style.display = 'block';
-    lassoEl.style.left = x + 'px'; lassoEl.style.top = y + 'px';
-    lassoEl.style.width = w + 'px'; lassoEl.style.height = h + 'px';
+    lassoOrigin = {x: e.clientX - cr.left, y: e.clientY - cr.top};
+    lassoActive = false;
   }
 });
 
+document.addEventListener('mousemove', (e) => {
+  // ── Pan ──
+  if (panDragging) {
+    panX += e.clientX - panLast.x;
+    panY += e.clientY - panLast.y;
+    panLast = {x: e.clientX, y: e.clientY};
+    applyPan();
+    return;
+  }
+  // ── Lasso ──
+  if (!lassoOrigin || e.buttons !== 1 || draggingNode || drawingWire || draggingHandle) return;
+  const cr = canvas.getBoundingClientRect();
+  const cx = e.clientX - cr.left;
+  const cy = e.clientY - cr.top;
+  const dx = cx - lassoOrigin.x, dy = cy - lassoOrigin.y;
+  if (!lassoActive && Math.hypot(dx, dy) < 5) return;
+  lassoActive = true;
+  canvas.style.cursor = 'crosshair';
+  lassoEl.style.display = 'block';
+  lassoEl.style.left   = Math.min(lassoOrigin.x, cx) + 'px';
+  lassoEl.style.top    = Math.min(lassoOrigin.y, cy) + 'px';
+  lassoEl.style.width  = Math.abs(dx) + 'px';
+  lassoEl.style.height = Math.abs(dy) + 'px';
+});
+
 document.addEventListener('mouseup', (e) => {
-  if (!bgDragging) return;
-  bgDragging = false;
+  if (panDragging) {
+    panDragging = false;
+    canvas.style.cursor = 'default';
+    return;
+  }
+  if (!lassoOrigin) return;
+  const wasActive = lassoActive;
+  lassoActive = false;
   canvas.style.cursor = 'default';
 
-  if (lassoDragging) {
-    lassoDragging = false;
-
-    // Read lasso rect in canvas-relative screen coords BEFORE hiding
-    const cr = canvas.getBoundingClientRect();
-    const lScreenX1 = parseFloat(lassoEl.style.left);
-    const lScreenY1 = parseFloat(lassoEl.style.top);
-    const lScreenX2 = lScreenX1 + parseFloat(lassoEl.style.width);
-    const lScreenY2 = lScreenY1 + parseFloat(lassoEl.style.height);
-    lassoEl.style.display = 'none';
+  if (wasActive) {
+    const cr  = canvas.getBoundingClientRect();
+    const lx1 = parseFloat(lassoEl.style.left);
+    const ly1 = parseFloat(lassoEl.style.top);
+    const lx2 = lx1 + parseFloat(lassoEl.style.width);
+    const ly2 = ly1 + parseFloat(lassoEl.style.height);
 
     document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
     selectedIds.clear(); selectedId = null;
@@ -881,14 +889,10 @@ document.addEventListener('mouseup', (e) => {
     nodes.forEach(n => {
       const nel = document.getElementById(n.id);
       if (!nel) return;
-      // Get node position in canvas-relative screen coords
       const nr = nel.getBoundingClientRect();
-      const nx1 = nr.left  - cr.left;
-      const ny1 = nr.top   - cr.top;
-      const nx2 = nr.right - cr.left;
-      const ny2 = nr.bottom - cr.top;
-      // Check overlap
-      if (nx1 < lScreenX2 && nx2 > lScreenX1 && ny1 < lScreenY2 && ny2 > lScreenY1) {
+      const nx1 = nr.left   - cr.left, ny1 = nr.top    - cr.top;
+      const nx2 = nr.right  - cr.left, ny2 = nr.bottom - cr.top;
+      if (nx1 < lx2 && nx2 > lx1 && ny1 < ly2 && ny2 > ly1) {
         nel.classList.add('selected');
         selectedIds.add(n.id);
         selectedId = n.id;
@@ -896,6 +900,9 @@ document.addEventListener('mouseup', (e) => {
     });
     renderWires();
   }
+
+  lassoEl.style.display = 'none';
+  lassoOrigin = null;
 });
 
 // ── Save status UI ─────────────────────────────────────────────
