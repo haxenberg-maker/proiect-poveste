@@ -477,24 +477,6 @@ function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h, sa
   delBtn.className = 'node-delete'; delBtn.innerHTML = '✕';
   delBtn.addEventListener('click', (e) => { e.stopPropagation(); deleteNode(id); });
 
-  // ── Color swatch ──
-  const colorBtn = document.createElement('div');
-  colorBtn.className = 'node-color-btn';
-  colorBtn.style.background = nodeColor === '#2e2e2e' ? '#2e2e2e' : nodeColor;
-  const colorInput = document.createElement('input');
-  colorInput.type = 'color';
-  colorInput.value = nodeColor === '#2e2e2e' ? '#3a7bd5' : nodeColor;
-  colorInput.addEventListener('input', (e) => {
-    e.stopPropagation();
-    const c = e.target.value;
-    el.dataset.color = c;
-    colorBtn.style.background = c;
-    applyNodeColor(el, c);
-    scheduleAutoSave();
-  });
-  colorInput.addEventListener('mousedown', e => e.stopPropagation());
-  colorBtn.appendChild(colorInput);
-
   // ── Pencil / edit button ──
   const editBtn = document.createElement('div');
   editBtn.className = 'node-edit-btn';
