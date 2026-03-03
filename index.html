@@ -837,7 +837,16 @@ document.addEventListener('mousemove', (e) => {
   bgMoved = true;
 
   if (e.shiftKey) {
-    // Shift+drag = lasso
+    // Shift+drag = pan
+    lassoDragging = false;
+    lassoEl.style.display = 'none';
+    canvas.style.cursor = 'grabbing';
+    panX += e.clientX - bgStart.x;
+    panY += e.clientY - bgStart.y;
+    bgStart = {x: e.clientX, y: e.clientY};
+    applyPan();
+  } else {
+    // Normal drag = lasso
     lassoDragging = true;
     canvas.style.cursor = 'crosshair';
     const cr = canvas.getBoundingClientRect();
@@ -847,15 +856,6 @@ document.addEventListener('mousemove', (e) => {
     lassoEl.style.display = 'block';
     lassoEl.style.left = x + 'px'; lassoEl.style.top = y + 'px';
     lassoEl.style.width = w + 'px'; lassoEl.style.height = h + 'px';
-  } else {
-    // Normal drag = pan
-    lassoDragging = false;
-    lassoEl.style.display = 'none';
-    canvas.style.cursor = 'grabbing';
-    panX += e.clientX - bgStart.x;
-    panY += e.clientY - bgStart.y;
-    bgStart = {x: e.clientX, y: e.clientY};
-    applyPan();
   }
 });
 
@@ -865,14 +865,20 @@ document.addEventListener('mouseup', (e) => {
   canvas.style.cursor = 'default';
 
   if (lassoDragging) {
-    // Finalize lasso — find nodes inside rect
     lassoDragging = false;
+
+    // Read coords BEFORE hiding
+    const lScreenX1 = parseFloat(lassoEl.style.left);
+    const lScreenY1 = parseFloat(lassoEl.style.top);
+    const lScreenW  = parseFloat(lassoEl.style.width);
+    const lScreenH  = parseFloat(lassoEl.style.height);
     lassoEl.style.display = 'none';
-    const cr = canvas.getBoundingClientRect();
-    const lx1 = (parseFloat(lassoEl.style.left)  - panX) / zoom;
-    const ly1 = (parseFloat(lassoEl.style.top)   - panY) / zoom;
-    const lx2 = lx1 + parseFloat(lassoEl.style.width)  / zoom;
-    const ly2 = ly1 + parseFloat(lassoEl.style.height) / zoom;
+
+    // Convert from canvas-screen space → world space
+    const lx1 = (lScreenX1 - panX) / zoom;
+    const ly1 = (lScreenY1 - panY) / zoom;
+    const lx2 = lx1 + lScreenW / zoom;
+    const ly2 = ly1 + lScreenH / zoom;
 
     document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
     selectedIds.clear(); selectedId = null;
@@ -880,8 +886,10 @@ document.addEventListener('mouseup', (e) => {
     nodes.forEach(n => {
       const nel = document.getElementById(n.id);
       if (!nel) return;
-      const nx = parseInt(nel.style.left), ny = parseInt(nel.style.top);
-      const nw = nel.offsetWidth, nh = nel.offsetHeight;
+      const nx = parseInt(nel.style.left) || 0;
+      const ny = parseInt(nel.style.top)  || 0;
+      const nw = nel.offsetWidth;
+      const nh = nel.offsetHeight;
       if (nx < lx2 && nx + nw > lx1 && ny < ly2 && ny + nh > ly1) {
         nel.classList.add('selected');
         selectedIds.add(n.id);
