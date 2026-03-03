@@ -421,6 +421,7 @@
 <div id="toolbar">
   <button class="tool-btn" onclick="addNode()">+ Nod</button>
   <button class="tool-btn danger" onclick="deleteSelected()">✕ Șterge</button>
+  <button class="tool-btn" onclick="resetView()">⌂ Vedere</button>
   <button class="tool-btn" onclick="clearAll()">Resetează</button>
 </div>
 
@@ -587,6 +588,7 @@ async function loadDiagram() {
       });
       connections = (data.connections || []).map(c => ({...c, midX: c.midX||undefined, midY: c.midY||undefined}));
       renderWires();
+      resetView();
       setStatus('saved', 'Salvat ✓');
     } else {
       initDefaultDiagram();
@@ -936,6 +938,32 @@ document.addEventListener('click', (e) => {
     document.getElementById('nav-btn').classList.remove('open');
   }
 });
+
+// ── Reset View — fit all nodes in canvas ──────────────────────
+function resetView() {
+  if (nodes.length === 0) { panX = 0; panY = 0; zoom = 1; applyTransform(); return; }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  nodes.forEach(n => {
+    const el = document.getElementById(n.id);
+    if (!el) return;
+    const x = parseInt(el.style.left) || 0;
+    const y = parseInt(el.style.top)  || 0;
+    const w = el.offsetWidth  || 200;
+    const h = el.offsetHeight || 160;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + w);
+    maxY = Math.max(maxY, y + h);
+  });
+  const pad = 60;
+  const cr  = canvas.getBoundingClientRect();
+  const scaleX = (cr.width  - pad*2) / (maxX - minX || 1);
+  const scaleY = (cr.height - pad*2) / (maxY - minY || 1);
+  zoom = Math.min(1, scaleX, scaleY);
+  panX = pad - minX * zoom + (cr.width  - pad*2 - (maxX - minX) * zoom) / 2;
+  panY = pad - minY * zoom + (cr.height - pad*2 - (maxY - minY) * zoom) / 2;
+  applyTransform();
+}
 
 // ── Default diagram ────────────────────────────────────────────
 function initDefaultDiagram() {
