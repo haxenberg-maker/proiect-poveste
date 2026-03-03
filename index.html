@@ -52,6 +52,57 @@
   </div>
 </div>
 
+<div class="node-edit-panel" id="node-edit-panel">
+  <div class="nep-title">✏ Editare nod</div>
+
+  <div class="nep-row">
+    <span class="nep-label">Culoare border</span>
+    <input type="color" class="nep-color" id="nep-border-color" value="#3a7bd5">
+  </div>
+
+  <div class="nep-row">
+    <span class="nep-label">Culoare fundal</span>
+    <input type="color" class="nep-color" id="nep-bg-color" value="#1a1a1a">
+  </div>
+
+  <div class="nep-row">
+    <span class="nep-label">Culoare titlu</span>
+    <input type="color" class="nep-color" id="nep-title-color" value="#888888">
+  </div>
+
+  <div class="nep-row">
+    <span class="nep-label">Culoare text</span>
+    <input type="color" class="nep-color" id="nep-text-color" value="#cccccc">
+  </div>
+
+  <div class="nep-row">
+    <span class="nep-label">Grosime border</span>
+    <div class="nep-range-wrap">
+      <input type="range" class="nep-range" id="nep-border-width" min="0" max="6" step="0.5" value="1.5">
+      <span class="nep-range-val" id="nep-border-width-val">1.5</span>
+    </div>
+  </div>
+
+  <div class="nep-row">
+    <span class="nep-label">Rotunjire colțuri</span>
+    <div class="nep-range-wrap">
+      <input type="range" class="nep-range" id="nep-radius" min="0" max="28" step="1" value="14">
+      <span class="nep-range-val" id="nep-radius-val">14</span>
+    </div>
+  </div>
+
+  <div class="nep-row">
+    <span class="nep-label">Stil font titlu</span>
+    <select class="nep-select" id="nep-title-style">
+      <option value="normal">Normal</option>
+      <option value="bold">Bold</option>
+      <option value="italic">Italic</option>
+    </select>
+  </div>
+
+  <div class="nep-close" id="nep-close-btn">✕ Închide</div>
+</div>
+
 <div id="wire-color-popup">
   <span>Culoare fir</span>
   <input type="color" id="wire-color-input" value="#3a7bd5">
@@ -215,7 +266,8 @@ function serializeState() {
         body:  el.querySelector('.node-body').textContent,
         month: el.querySelector('.node-month').value,
         year:  el.querySelector('.node-year').value,
-        color: el.dataset.color || ''
+        color: el.dataset.color || '',
+        style: el.dataset.nodeStyle ? JSON.parse(el.dataset.nodeStyle) : null
       };
     }),
     connections: connections.map(c => ({...c})),
@@ -249,7 +301,7 @@ async function loadDiagram() {
       panX = data.panX || 0; panY = data.panY || 0; zoom = data.zoom || 1;
       applyTransform();
       (data.nodes || []).forEach(n => {
-        createNode(n.x, n.y, n.title, n.body, n.id, n.month, n.year, n.w, n.h, n.color);
+        createNode(n.x, n.y, n.title, n.body, n.id, n.month, n.year, n.w, n.h, n.color, n.style);
       });
       connections = (data.connections || []).map(c => ({...c, midX: c.midX||undefined, midY: c.midY||undefined}));
       renderWires();
@@ -385,7 +437,7 @@ document.addEventListener('click', (e) => {
 // ── Node creation ──────────────────────────────────────────────
 const MONTHS = ["Ian","Feb","Mar","Apr","Mai","Iun","Iul","Aug","Sep","Oct","Noi","Dec"];
 
-function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h, savedColor) {
+function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h, savedColor, savedStyle) {
   if (!forcedId) nodeCount++;
   const id = forcedId || ('node-' + nodeCount);
 
@@ -399,6 +451,7 @@ function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h, sa
   const nodeColor = savedColor || '#2e2e2e';
   el.dataset.color = nodeColor;
   applyNodeColor(el, nodeColor);
+  if (savedStyle) setTimeout(() => applyNodeStyle(el, savedStyle), 0);
 
   // Re-render wires & save on resize
   const observer = new ResizeObserver(() => {
@@ -442,8 +495,20 @@ function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h, sa
   colorInput.addEventListener('mousedown', e => e.stopPropagation());
   colorBtn.appendChild(colorInput);
 
+  // ── Pencil / edit button ──
+  const editBtn = document.createElement('div');
+  editBtn.className = 'node-edit-btn';
+  editBtn.innerHTML = '✎';
+  editBtn.title = 'Editare stil nod';
+  editBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openNodeEditPanel(id, editBtn);
+  });
+  editBtn.addEventListener('mousedown', e => e.stopPropagation());
+
   header.appendChild(titleEl);
   header.appendChild(colorBtn);
+  header.appendChild(editBtn);
   header.appendChild(delBtn);
 
   // ── Body ──
@@ -629,6 +694,100 @@ canvas.addEventListener('click', (e) => {
   }
 });
 
+
+
+// ── Node Edit Panel ───────────────────────────────────────────
+let editingNodeId = null;
+const editPanel = document.getElementById('node-edit-panel');
+
+function applyNodeStyle(el, s) {
+  if (!s) return;
+  if (s.borderColor)  el.style.borderColor  = s.borderColor;
+  if (s.borderWidth != null) el.style.borderWidth = s.borderWidth + 'px';
+  if (s.borderRadius != null) el.style.borderRadius = s.borderRadius + 'px';
+  if (s.bgColor)      el.style.background   = s.bgColor;
+  const title = el.querySelector('.node-title');
+  if (title) {
+    if (s.titleColor) title.style.color = s.titleColor;
+    if (s.titleStyle === 'bold')   { title.style.fontWeight = 'bold'; title.style.fontStyle = 'normal'; }
+    else if (s.titleStyle === 'italic') { title.style.fontStyle = 'italic'; title.style.fontWeight = 'normal'; }
+    else { title.style.fontWeight = ''; title.style.fontStyle = ''; }
+  }
+  const body = el.querySelector('.node-body');
+  if (body && s.textColor) body.style.color = s.textColor;
+  el.dataset.nodeStyle = JSON.stringify(s);
+}
+
+function getNodeStyle(el) {
+  try { return el.dataset.nodeStyle ? JSON.parse(el.dataset.nodeStyle) : {}; } catch { return {}; }
+}
+
+function openNodeEditPanel(nodeId, anchorEl) {
+  editingNodeId = nodeId;
+  const el = document.getElementById(nodeId);
+  if (!el) return;
+
+  // Position panel near pencil btn
+  const r = anchorEl.getBoundingClientRect();
+  editPanel.style.left = Math.min(r.left, window.innerWidth - 250) + 'px';
+  editPanel.style.top  = (r.bottom + 8) + 'px';
+  editPanel.classList.add('show');
+
+  // Populate current values
+  const s = getNodeStyle(el);
+  const cs = getComputedStyle(el);
+  document.getElementById('nep-border-color').value  = s.borderColor  || '#3a7bd5';
+  document.getElementById('nep-bg-color').value      = s.bgColor      || '#1a1a1a';
+  document.getElementById('nep-title-color').value   = s.titleColor   || '#888888';
+  document.getElementById('nep-text-color').value    = s.textColor    || '#cccccc';
+  const bw = s.borderWidth != null ? s.borderWidth : 1.5;
+  document.getElementById('nep-border-width').value  = bw;
+  document.getElementById('nep-border-width-val').textContent = bw;
+  const br = s.borderRadius != null ? s.borderRadius : 14;
+  document.getElementById('nep-radius').value        = br;
+  document.getElementById('nep-radius-val').textContent = br;
+  document.getElementById('nep-title-style').value   = s.titleStyle   || 'normal';
+}
+
+function closeNodeEditPanel() {
+  editPanel.classList.remove('show');
+  editingNodeId = null;
+}
+
+document.getElementById('nep-close-btn').addEventListener('click', closeNodeEditPanel);
+
+// Live updates
+function nepUpdate() {
+  if (!editingNodeId) return;
+  const el = document.getElementById(editingNodeId);
+  if (!el) return;
+  const s = getNodeStyle(el);
+  s.borderColor  = document.getElementById('nep-border-color').value;
+  s.bgColor      = document.getElementById('nep-bg-color').value;
+  s.titleColor   = document.getElementById('nep-title-color').value;
+  s.textColor    = document.getElementById('nep-text-color').value;
+  s.borderWidth  = parseFloat(document.getElementById('nep-border-width').value);
+  s.borderRadius = parseInt(document.getElementById('nep-radius').value);
+  s.titleStyle   = document.getElementById('nep-title-style').value;
+  document.getElementById('nep-border-width-val').textContent = s.borderWidth;
+  document.getElementById('nep-radius-val').textContent = s.borderRadius;
+  applyNodeStyle(el, s);
+  scheduleAutoSave();
+}
+
+['nep-border-color','nep-bg-color','nep-title-color','nep-text-color',
+ 'nep-border-width','nep-radius','nep-title-style'].forEach(id => {
+  document.getElementById(id).addEventListener('input', nepUpdate);
+});
+
+// Close if clicking outside panel and outside nodes
+document.addEventListener('mousedown', (e) => {
+  if (editPanel.classList.contains('show') &&
+      !editPanel.contains(e.target) &&
+      !e.target.classList.contains('node-edit-btn')) {
+    closeNodeEditPanel();
+  }
+});
 
 // ── Node Navigator ────────────────────────────────────────────
 function toggleNav() {
