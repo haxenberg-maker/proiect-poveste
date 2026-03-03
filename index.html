@@ -61,11 +61,11 @@
   }
   svg#wires {
     position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 9999px; height: 9999px;
     pointer-events: none;
     z-index: 1;
+    overflow: visible;
   }
   .wire {
     fill: none;
@@ -301,6 +301,15 @@
     animation: spin 0.7s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* ── WORLD (pan container) ── */
+  #world {
+    position: absolute;
+    top: 0; left: 0;
+    width: 0; height: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+
 </style>
 </head>
 <body>
@@ -330,14 +339,16 @@
     <div class="logo">Wire Diagram</div>
     <div class="spinner"></div>
   </div>
-  <svg id="wires">
-    <defs>
-      <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-        <path d="M0,0 L0,6 L8,3 z" fill="#3a7bd5"/>
-      </marker>
-    </defs>
-    <path id="temp-wire" d=""/>
-  </svg>
+  <div id="world">
+    <svg id="wires">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#3a7bd5"/>
+        </marker>
+      </defs>
+      <path id="temp-wire" d=""/>
+    </svg>
+  </div>
 </div>
 
 <div id="toolbar">
@@ -387,6 +398,7 @@ const canvas   = document.getElementById('canvas');
 const svgEl    = document.getElementById('wires');
 const tempWire = document.getElementById('temp-wire');
 const overlay  = document.getElementById('loading-overlay');
+const world    = document.getElementById('world');
 
 let nodes = [], connections = [];
 let selectedId = null, nodeCount = 0;
@@ -394,6 +406,23 @@ let draggingNode = null, dragOffset = {x:0, y:0};
 let drawingWire = null, draggingHandle = null;
 let saveTimeout = null;
 let isLoading = true;
+let panX = 0, panY = 0;
+
+function applyPan() {
+  world.style.transform = `translate(${panX}px, ${panY}px)`;
+}
+
+// ── Pan with scroll wheel ──────────────────────────────────────
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (e.shiftKey) {
+    panX -= e.deltaY;
+  } else {
+    panX -= e.deltaX;
+    panY -= e.deltaY;
+  }
+  applyPan();
+}, { passive: false });
 
 // ── Save status UI ─────────────────────────────────────────────
 function setStatus(state, text) {
@@ -421,7 +450,8 @@ function serializeState() {
       };
     }),
     connections: connections.map(c => ({...c})),
-    nodeCount
+    nodeCount,
+    panX, panY
   };
 }
 
@@ -447,6 +477,8 @@ async function loadDiagram() {
     if (snap.exists()) {
       const data = snap.val();
       nodeCount = data.nodeCount || 0;
+      panX = data.panX || 0; panY = data.panY || 0;
+      applyPan();
       (data.nodes || []).forEach(n => {
         createNode(n.x, n.y, n.title, n.body, n.id, n.month, n.year, n.w, n.h);
       });
@@ -470,13 +502,13 @@ async function loadDiagram() {
 // ── Rendering ──────────────────────────────────────────────────
 function getPortPos(nodeEl, side) {
   const r  = nodeEl.getBoundingClientRect();
-  const cr = canvas.getBoundingClientRect();
-  const cx = r.left - cr.left + r.width / 2;
-  const cy = r.top  - cr.top  + r.height / 2;
-  if (side === 'right')  return {x: r.right  - cr.left, y: cy};
-  if (side === 'left')   return {x: r.left   - cr.left, y: cy};
-  if (side === 'bottom') return {x: cx, y: r.bottom - cr.top};
-  if (side === 'top')    return {x: cx, y: r.top    - cr.top};
+  const wr = world.getBoundingClientRect();
+  const cx = r.left - wr.left + r.width / 2;
+  const cy = r.top  - wr.top  + r.height / 2;
+  if (side === 'right')  return {x: r.right  - wr.left, y: cy};
+  if (side === 'left')   return {x: r.left   - wr.left, y: cy};
+  if (side === 'bottom') return {x: cx, y: r.bottom - wr.top};
+  if (side === 'top')    return {x: cx, y: r.top    - wr.top};
   return {x: cx, y: cy};
 }
 
@@ -658,7 +690,7 @@ function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h) {
     e.preventDefault();
   });
 
-  canvas.appendChild(el);
+  world.appendChild(el);
   nodes.push({id, el});
   return id;
 }
@@ -699,8 +731,8 @@ async function clearAll() {
 
 // ── Mouse events ───────────────────────────────────────────────
 document.addEventListener('mousemove', (e) => {
-  const cr = canvas.getBoundingClientRect();
-  const mx = e.clientX - cr.left, my = e.clientY - cr.top;
+  const wr = world.getBoundingClientRect();
+  const mx = e.clientX - wr.left, my = e.clientY - wr.top;
   if (draggingNode) {
     draggingNode.style.left = (e.clientX - dragOffset.x) + 'px';
     draggingNode.style.top  = (e.clientY - dragOffset.y) + 'px';
@@ -741,7 +773,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 canvas.addEventListener('click', (e) => {
-  if (e.target === canvas || e.target === svgEl) {
+  if (e.target === canvas || e.target === svgEl || e.target === world) {
     selectedId = null;
     document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
     renderWires();
