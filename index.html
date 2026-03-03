@@ -722,6 +722,7 @@ let panX = 0, panY = 0, zoom = 1;
 // ── Undo stack ────────────────────────────────────────────────
 let undoStack = [];
 const UNDO_LIMIT = 50;
+let clipboardNode = null; // for Ctrl+C / Ctrl+V
 
 function snapshotForUndo() {
   if (isLoading) return;
@@ -1064,12 +1065,16 @@ function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h, sa
   dateLabel.className = 'node-date-label';
   dateLabel.textContent = 'Data';
 
+  const _now = new Date();
+  const _defMonth = (savedMonth !== undefined && savedMonth != null) ? savedMonth : _now.getMonth();
+  const _defYear  = (savedYear  != null) ? savedYear : _now.getFullYear();
+
   const selMonth = document.createElement('select');
   selMonth.className = 'node-month';
   MONTHS.forEach((m, i) => {
     const opt = document.createElement('option');
     opt.value = i; opt.textContent = m;
-    if (savedMonth !== undefined && savedMonth != null && String(savedMonth) === String(i)) opt.selected = true;
+    if (String(_defMonth) === String(i)) opt.selected = true;
     selMonth.appendChild(opt);
   });
 
@@ -1078,7 +1083,7 @@ function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h, sa
   for (let y = 2011; y <= 2030; y++) {
     const opt = document.createElement('option');
     opt.value = y; opt.textContent = y;
-    if (savedYear != null && String(savedYear) === String(y)) opt.selected = true;
+    if (String(_defYear) === String(y)) opt.selected = true;
     selYear.appendChild(opt);
   }
 
@@ -1210,13 +1215,50 @@ document.addEventListener('mouseup', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault(); undo(); return;
+  }
+  const active = document.activeElement;
+  const inText = active && (active.classList.contains('node-body') || active.classList.contains('node-title'));
+
+  if ((e.key === 'c' || e.key === 'C') && (e.ctrlKey || e.metaKey) && !inText) {
+    if (!selectedId) return;
+    const el = document.getElementById(selectedId);
+    if (!el || !nodes.find(n => n.id === selectedId)) return;
     e.preventDefault();
-    undo();
+    clipboardNode = {
+      title: el.querySelector('.node-title').textContent,
+      body:  el.querySelector('.node-body').textContent,
+      month: el.querySelector('.node-month').value,
+      year:  el.querySelector('.node-year').value,
+      color: el.dataset.color || '',
+      style: el.dataset.nodeStyle ? JSON.parse(el.dataset.nodeStyle) : null,
+      w: el.offsetWidth, h: el.offsetHeight
+    };
     return;
   }
+
+  if ((e.key === 'v' || e.key === 'V') && (e.ctrlKey || e.metaKey) && !inText) {
+    if (!clipboardNode) return;
+    e.preventDefault();
+    snapshotForUndo();
+    const el = document.getElementById(selectedId);
+    const baseX = el ? parseInt(el.style.left) + 30 : 120 + Math.random() * 200;
+    const baseY = el ? parseInt(el.style.top)  + 30 : 120 + Math.random() * 200;
+    const newId = createNode(baseX, baseY, clipboardNode.title, clipboardNode.body,
+      null, clipboardNode.month, clipboardNode.year, clipboardNode.w, clipboardNode.h,
+      clipboardNode.color, clipboardNode.style);
+    // Select the new node
+    document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
+    const newEl = document.getElementById(newId);
+    if (newEl) newEl.classList.add('selected');
+    selectedId = newId;
+    renderWires();
+    scheduleAutoSave();
+    return;
+  }
+
   if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
-    const a = document.activeElement;
-    if (a && (a.classList.contains('node-body') || a.classList.contains('node-title'))) return;
+    if (inText) return;
     deleteSelected();
   }
 });
@@ -1240,7 +1282,14 @@ function applyNodeStyle(el, s) {
   if (s.borderColor)  el.style.borderColor  = s.borderColor;
   if (s.borderWidth != null) el.style.borderWidth = s.borderWidth + 'px';
   if (s.borderRadius != null) el.style.borderRadius = s.borderRadius + 'px';
-  if (s.bgColor)      el.style.background   = s.bgColor;
+  if (s.bgColor) {
+    el.style.background = s.bgColor;
+    // Darken slightly for date footer
+    const dw = el.querySelector('.node-date-wrap');
+    if (dw) dw.style.background = s.bgColor + 'cc';
+    const hdr = el.querySelector('.node-header');
+    if (hdr) hdr.style.background = s.bgColor;
+  }
   const title = el.querySelector('.node-title');
   if (title) {
     if (s.titleColor) title.style.color = s.titleColor;
