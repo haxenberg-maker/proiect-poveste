@@ -571,6 +571,97 @@
     display: none;
     border-radius: 3px;
   }
+
+  /* ── IMPORT MODAL ── */
+  #import-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    z-index: 2000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  #import-overlay.show { display: flex; }
+  #import-modal {
+    background: #181818;
+    border: 1px solid #2e2e2e;
+    border-radius: 16px;
+    width: 520px;
+    max-width: 95vw;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+  }
+  #import-modal h2 {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #555;
+    margin: 0;
+  }
+  #import-modal p {
+    font-size: 12px;
+    color: #444;
+    line-height: 1.6;
+    margin: 0;
+  }
+  #import-modal p code {
+    background: #222;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: #7ab;
+    font-size: 11px;
+  }
+  #import-textarea {
+    background: #111;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    color: #ccc;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 12px;
+    resize: vertical;
+    min-height: 200px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  #import-textarea:focus { border-color: #3a7bd5; }
+  #import-textarea::placeholder { color: #333; }
+  .import-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .import-actions button {
+    background: none;
+    border: 1px solid #2a2a2a;
+    color: #666;
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 8px 18px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .import-actions button:hover { color: #ccc; border-color: #444; background: #222; }
+  .import-actions button.primary {
+    background: #3a7bd5;
+    border-color: #3a7bd5;
+    color: #fff;
+  }
+  .import-actions button.primary:hover { background: #4a8be5; }
+  #import-error {
+    font-size: 11px;
+    color: #e05555;
+    min-height: 16px;
+  }
 </style>
 </head>
 <body>
@@ -684,6 +775,23 @@
   <div class="nep-close" id="nep-close-btn">✕ Închide</div>
 </div>
 
+<div id="import-overlay">
+  <div id="import-modal">
+    <h2>⬆ Import Noduri</h2>
+    <p>Lipește un JSON cu noduri de importat. Formatul este o listă de obiecte, fiecare cu:<br>
+    <code>title</code>, <code>body</code> (opțional), <code>month</code> (0-11, opțional), <code>year</code> (opțional)</p>
+    <textarea id="import-textarea" placeholder='[
+  { "title": "Idee 1", "body": "Descriere idee 1" },
+  { "title": "Idee 2", "body": "Descriere idee 2", "month": 3, "year": 2024 }
+]'></textarea>
+    <div id="import-error"></div>
+    <div class="import-actions">
+      <button onclick="closeImport()">Anulează</button>
+      <button class="primary" onclick="doImport()">Importă</button>
+    </div>
+  </div>
+</div>
+
 <div id="wire-color-popup">
   <span>Culoare fir</span>
   <input type="color" id="wire-color-input" value="#3a7bd5">
@@ -692,6 +800,7 @@
   <button class="tool-btn" onclick="addNode()">+ Nod</button>
   <button class="tool-btn danger" onclick="deleteSelected()">✕ Șterge</button>
   <button class="tool-btn" onclick="resetView()">⌂ Vedere</button>
+  <button class="tool-btn" id="import-open-btn">⬆ Import</button>
 
 </div>
 
@@ -1219,9 +1328,19 @@ function createNode(x, y, title, body, forcedId, savedMonth, savedYear, w, h, sa
   return id;
 }
 
+function viewportCenter() {
+  const cr = canvas.getBoundingClientRect();
+  return {
+    x: (cr.width  / 2 - panX) / zoom,
+    y: (cr.height / 2 - panY) / zoom
+  };
+}
+
 function addNode() {
   snapshotForUndo();
-  createNode(80 + Math.random()*320, 80 + Math.random()*220, '', '');
+  const vc = viewportCenter();
+  createNode(vc.x - 120 + (Math.random() - 0.5) * 40,
+             vc.y -  95 + (Math.random() - 0.5) * 40, '', '');
   scheduleAutoSave();
 }
 
@@ -1643,7 +1762,7 @@ function resetView() {
   applyTransform();
 }
 
-// ── Default diagram removed — always load from Firebase ──────
+// Default diagram removed
 </script>
 </body>
 </html>
