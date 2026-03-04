@@ -800,7 +800,7 @@
   <button class="tool-btn" onclick="addNode()">+ Nod</button>
   <button class="tool-btn danger" onclick="deleteSelected()">✕ Șterge</button>
   <button class="tool-btn" onclick="resetView()">⌂ Vedere</button>
-  <button class="tool-btn" id="import-open-btn">⬆ Import</button>
+  <button class="tool-btn" id="import-open-btn" onclick="document.getElementById('import-overlay').classList.add('show'); document.getElementById('import-error').textContent = '';">⬆ Import</button>
 
 </div>
 
